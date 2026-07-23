@@ -1,12 +1,13 @@
 name: Daily Options Report
 
 # 실행 시각:
-#  - 자동: 22:00 UTC = 아침 07:00 KST. cron 은 UTC 기준(한국은 DST 없음).
-#    월~금(UTC) 실행 → 화~토 아침 KST 도착 = 미국 월~금 세션 커버.
+#  - 자동: 07:00 UTC = 영국 아침 08:00(BST, 여름) / 07:00(GMT, 겨울).
+#    화~토 실행 → 전날 미국장(월~금 세션)을 영국 아침에 정리해 발송.
+#    미국장 마감(UK 밤 9시) 후 밤사이 OI 가 확정된 상태 → 다음 개장 전 준비용.
 #  - 수동: Actions 탭에서 "Run workflow" 로 언제든 실행 가능(테스트용).
 on:
   schedule:
-    - cron: "0 22 * * 1-5"
+    - cron: "0 7 * * 2-6"
   workflow_dispatch:
 
 # 스냅샷을 repo 에 커밋해야 하므로 쓰기 권한 필요
