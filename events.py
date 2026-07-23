@@ -221,19 +221,38 @@ def _parse_news_item(n: dict) -> dict | None:
 # 3. 가격 신뢰성(이상 급변)
 # ------------------------------------------------------------------ #
 
-def price_sanity(spot: float, prev_close: float | None) -> dict:
-    """전일 종가 대비 변동률과 이상치 여부."""
-    if not prev_close:
-        return {"change_pct": None, "abnormal": False, "note": None}
-    change = round((spot - prev_close) / prev_close * 100, 2)
-    abnormal = abs(change) >= config.PRICE_MOVE_ALERT_PCT
-    note = None
-    if abnormal:
-        note = (
-            f"전일 대비 {change:+.1f}% 로 변동이 큽니다 — 장중 급변/지연 호가일 수 있으니 "
-            "실제 시세를 확인하세요."
+def price_sanity(
+    spot: float,
+    prev_close: float | None,
+    regular_close: float | None = None,
+    extended_vs_regular_pct: float | None = None,
+) -> dict:
+    """전일 종가 대비 변동 + 정규장 vs 장외 괴리 주의."""
+    change = None
+    if prev_close:
+        change = round((spot - prev_close) / prev_close * 100, 2)
+    abnormal = bool(change is not None and abs(change) >= config.PRICE_MOVE_ALERT_PCT)
+    notes: list[str] = []
+    if abnormal and change is not None:
+        notes.append(
+            f"전일 대비 {change:+.1f}% 로 변동이 큽니다 — 실제 시세를 확인하세요."
         )
-    return {"change_pct": change, "abnormal": abnormal, "note": note}
+    if (
+        extended_vs_regular_pct is not None
+        and abs(extended_vs_regular_pct) >= 1.0
+        and regular_close is not None
+    ):
+        direction = "하락" if extended_vs_regular_pct < 0 else "상승"
+        notes.append(
+            f"정규장 종가 ${regular_close:g} 대비 장외에서 {extended_vs_regular_pct:+.1f}% "
+            f"{direction} — 리포트 기준가는 장외/프리마켓 반영값입니다."
+        )
+        abnormal = True
+    return {
+        "change_pct": change,
+        "abnormal": abnormal,
+        "note": " ".join(notes) if notes else None,
+    }
 
 
 # ------------------------------------------------------------------ #
@@ -361,6 +380,127 @@ def options_reaction(base: dict, prev: dict | None, earnings: dict | None) -> di
 
 
 # ------------------------------------------------------------------ #
+# 5. 다음 장 개장 시나리오 (옵션 집중 구간 → 주가 해석)
+# ------------------------------------------------------------------ #
+
+def next_session_scenarios(
+    base: dict,
+    spot: float,
+    data: dict | None = None,
+    earnings: dict | None = None,
+) -> dict | None:
+    """옵션 거래 집중 구간과 (가능하면) 장외 시세를 바탕으로
+    '다음 장에서 뭘 보면 되는지' 시나리오를 구조화한다.
+
+    예측이 아니라 관찰 포인트: 지지/저항 돌파 여부 + 갭 상태.
+    """
+    put_rows = base.get("top_put_volume") or []
+    call_rows = base.get("top_call_volume") or []
+    near = (base.get("expiry_metrics") or {}).get("this_week") or {}
+    st = near.get("straddle") or {}
+
+    supports = sorted(
+        {float(r["strike"]) for r in put_rows if r.get("strike") is not None
+         and float(r["strike"]) <= spot * 1.02},
+        reverse=True,
+    )
+    resistances = sorted(
+        {float(r["strike"]) for r in call_rows if r.get("strike") is not None
+         and float(r["strike"]) >= spot * 0.98}
+    )
+
+    nearest_support = supports[0] if supports else None
+    next_support = supports[1] if len(supports) > 1 else None
+    nearest_resist = resistances[0] if resistances else None
+    next_resist = resistances[1] if len(resistances) > 1 else None
+
+    regular = (data or {}).get("regular_close")
+    extended = (data or {}).get("extended_price")
+    gap_pct = (data or {}).get("extended_vs_regular_pct")
+    session = (data or {}).get("session") or "regular"
+
+    gap_note = None
+    if gap_pct is not None and abs(gap_pct) >= 1.0 and regular and extended:
+        direction = "갭다운" if gap_pct < 0 else "갭업"
+        gap_note = (
+            f"정규장 종가 ${regular:g} → 장외 ${extended:g} ({gap_pct:+.1f}%, {direction}). "
+            "다음 개장은 이 장외가를 기준으로 시작될 가능성이 큽니다."
+        )
+
+    scenarios: list[dict] = []
+    if nearest_support is not None:
+        scenarios.append(
+            {
+                "name": "방어(반등 시도)",
+                "condition": f"개장 후 ${nearest_support:g} 지지가 지켜질 때",
+                "watch": (
+                    f"풋 거래가 몰린 ${nearest_support:g} 근처에서 매수 대기자가 받쳐주는지. "
+                    + (f"깨지면 다음 관심은 ${next_support:g}." if next_support else "")
+                ),
+            }
+        )
+    if nearest_support is not None:
+        scenarios.append(
+            {
+                "name": "추가 하락",
+                "condition": f"개장 후 ${nearest_support:g} 아래를 이탈할 때",
+                "watch": (
+                    "어닝 미스 여파가 장중으로 이어지는 신호. "
+                    + (f"다음 풋 밀집 ${next_support:g}까지 내려갈 수 있음." if next_support else
+                       "하락 가속 여부 확인.")
+                ),
+            }
+        )
+    if nearest_resist is not None:
+        scenarios.append(
+            {
+                "name": "반등 연장",
+                "condition": f"개장 후 ${nearest_resist:g} 저항을 돌파·유지할 때",
+                "watch": (
+                    f"콜 거래가 몰린 ${nearest_resist:g} 위로 안착하면 단기 숏커버/반등 가능. "
+                    + (f"다음 저항 ${next_resist:g}." if next_resist else "")
+                ),
+            }
+        )
+
+    # 어닝 직후 특별 코멘트
+    context = None
+    if earnings and earnings.get("phase") == "직후":
+        sur = earnings.get("surprise_pct")
+        sur_s = f" (EPS {sur:+.1f}%)" if sur is not None else ""
+        context = (
+            f"실적 발표 직후{sur_s}입니다. 옵션 시장이 이미 가격에 반영한 지지/저항을 "
+            "다음 개장 '관찰 체크리스트'로 쓰세요. 방향 예측이 아니라 돌파/이탈 확인용입니다."
+        )
+    elif earnings and earnings.get("phase") == "임박":
+        context = (
+            "실적 발표 임박입니다. 밴드가 넓어지고 콜·풋이 양쪽에 쌓이는 건 흔합니다. "
+            "발표 전엔 방향 단정 대신 변동성(범위)에 주목하세요."
+        )
+
+    if not scenarios and not gap_note:
+        return None
+
+    return {
+        "reference_spot": spot,
+        "session": session,
+        "gap_note": gap_note,
+        "nearest_support": nearest_support,
+        "nearest_resistance": nearest_resist,
+        "band": [st.get("lower"), st.get("upper")] if st else None,
+        "band_pct": st.get("band_pct"),
+        "context": context,
+        "scenarios": scenarios[:3],
+        "action_hint": (
+            f"개장 직후 첫 30분은 ${nearest_support:g} 지지 / ${nearest_resist:g} 저항 "
+            f"반응만 체크하세요."
+            if nearest_support is not None and nearest_resist is not None
+            else "개장 직후 지지·저항 반응을 먼저 확인하세요."
+        ),
+    }
+
+
+# ------------------------------------------------------------------ #
 # 통합 수집
 # ------------------------------------------------------------------ #
 
@@ -370,13 +510,20 @@ def collect_events(
     prev_close: float | None,
     base: dict | None = None,
     prev: dict | None = None,
+    data: dict | None = None,
 ) -> dict:
-    """어닝 + 뉴스 + 가격 + (선택) 옵션 반응을 한 번에 수집."""
+    """어닝 + 뉴스 + 가격 + 옵션 반응 + 다음장 시나리오를 한 번에 수집."""
     result = {
         "earnings": None,
         "news": [],
-        "price": price_sanity(spot, prev_close),
+        "price": price_sanity(
+            spot,
+            prev_close,
+            regular_close=(data or {}).get("regular_close"),
+            extended_vs_regular_pct=(data or {}).get("extended_vs_regular_pct"),
+        ),
         "options_reaction": None,
+        "next_session": None,
     }
     if not config.EVENTS_ENABLED:
         return result
@@ -391,4 +538,7 @@ def collect_events(
 
     if base is not None:
         result["options_reaction"] = options_reaction(base, prev, result["earnings"])
+        result["next_session"] = next_session_scenarios(
+            base, spot, data=data, earnings=result["earnings"]
+        )
     return result

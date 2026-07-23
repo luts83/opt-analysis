@@ -58,13 +58,14 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         data["anomalies"] = anomalies
         data["volume_anomaly"] = vol_anom
 
-        # 이벤트/뉴스(어닝·헤드라인·가격·옵션 반응) 수집
+        # 이벤트/뉴스(어닝·헤드라인·가격·옵션 반응·다음장 시나리오) 수집
         eventinfo = events_mod.collect_events(
             ticker,
             data["spot"],
             data.get("previous_close"),
             base=base,
             prev=prev,
+            data=data,
         )
         data["events"] = eventinfo
 

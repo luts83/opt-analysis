@@ -49,6 +49,13 @@ def _events_appendix(eventinfo: dict | None) -> list[str]:
         out.append("   · 어닝 옵션 반응:")
         for h in react["highlights"]:
             out.append(f"     - {h}")
+    nxt = eventinfo.get("next_session") or {}
+    if nxt and nxt.get("scenarios"):
+        out.append("   · 다음 장 시나리오:")
+        if nxt.get("gap_note"):
+            out.append(f"     - {nxt['gap_note']}")
+        for s in nxt["scenarios"]:
+            out.append(f"     - {s['name']}: {s['condition']}")
     news = eventinfo.get("news") or []
     if news:
         out.append("   · 최신 뉴스:")
@@ -75,7 +82,10 @@ def build_report(data: dict, base: dict, anomalies: list[dict],
     price = (eventinfo or {}).get("price") or {}
     chg = price.get("change_pct")
     chg_s = f" ({chg:+}%{' ⚠' if price.get('abnormal') else ''})" if chg is not None else ""
-    L.append(f"   현재가 ${data['spot']}{chg_s} | 심리 {base['sentiment']} "
+    sess = ""
+    if data.get("regular_close") and data.get("extended_price") and data.get("session") == "extended":
+        sess = f" | 정규장 ${data['regular_close']}→장외 ${data['extended_price']}"
+    L.append(f"   기준가 ${data['spot']}{chg_s}{sess} | 심리 {base['sentiment']} "
              f"(C/P {base['call_put_volume_ratio']}) | OI {src} | 해설:{ai}")
 
     # 만기별 밴드

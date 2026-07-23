@@ -46,6 +46,19 @@ def _events_lines(eventinfo: dict | None) -> list[str]:
     elif react and react.get("note") and not react.get("available"):
         L.append(f"🌊 옵션 반응: {react['note']}")
         L.append("")
+    nxt = eventinfo.get("next_session") or {}
+    if nxt:
+        L.append("🔮 다음 장 개장 시나리오")
+        if nxt.get("gap_note"):
+            L.append(nxt["gap_note"])
+        if nxt.get("context"):
+            L.append(nxt["context"])
+        for s in nxt.get("scenarios") or []:
+            L.append(f"- {s['name']}: {s['condition']}")
+            L.append(f"  → {s['watch']}")
+        if nxt.get("action_hint"):
+            L.append(f"※ {nxt['action_hint']}")
+        L.append("")
     news = eventinfo.get("news") or []
     if news:
         L.append("📰 최신 뉴스 헤드라인")
@@ -71,7 +84,15 @@ def build_friendly_fallback(data, base, anomalies, volume_anomaly, prev,
     # 이벤트/뉴스는 최상단에 (어닝 경고를 놓치지 않도록)
     L.extend(_events_lines(eventinfo))
 
-    if prev_close:
+    regular = data.get("regular_close")
+    extended = data.get("extended_price")
+    gap = data.get("extended_vs_regular_pct")
+    if regular and extended and gap is not None and abs(gap) >= 1.0:
+        L.append(
+            f"💰 분석 기준가: ${spot} (장외/프리마켓) · "
+            f"정규장 종가 ${regular:g} → 장외 ${extended:g} ({gap:+.1f}%)"
+        )
+    elif prev_close:
         chg = round((spot - prev_close) / prev_close * 100, 2)
         arrow = "올랐어요" if chg > 0 else "내렸어요"
         L.append(f"💰 지금 주가: ${spot} (어제보다 {chg:+}% {arrow})")

@@ -15,38 +15,86 @@ import config
 from expiry_selector import select_expiries
 
 
-def _get_spot_and_prevclose(t: yf.Ticker) -> tuple[float, float | None, str]:
-    """현재가와 전일 종가를 반환한다. (.info 미사용)"""
-    spot = None
+def _get_price_context(t: yf.Ticker) -> dict:
+    """정규장 종가 + (가능하면) 애프터/프리마켓 최근가를 함께 반환.
+
+    어닝 직후처럼 장외에서 급변한 경우, lastPrice(정규장)만 쓰면
+    실제 시세와 옵션 해석이 어긋난다. extended 가 의미 있게 다르면
+    분석 기준가(spot)는 extended 를 우선한다.
+    """
+    regular_close = None
     prev_close = None
-    note = ""
+    extended = None
+    session = "regular"
 
     try:
-        fi = t.fast_info
-        p = fi["lastPrice"]
-        if p and p > 0:
-            spot = float(p)
-            note = "fast_info.lastPrice"
-        try:
-            prev_close = float(fi["previousClose"])
-        except Exception:
-            prev_close = None
+        hist = t.history(period="5d")
+        closes = hist["Close"].dropna()
+        if not closes.empty:
+            regular_close = float(closes.iloc[-1])
+            if len(closes) >= 2:
+                prev_close = float(closes.iloc[-2])
     except Exception:
         pass
 
-    if spot is None:
-        # 폴백: 최근 종가 2일치
-        hist = t.history(period="5d")
-        closes = hist["Close"].dropna().tolist()
-        if closes:
-            spot = float(closes[-1])
-            prev_close = float(closes[-2]) if len(closes) >= 2 else None
-            note = "history.close"
+    try:
+        fi = t.fast_info
+        if prev_close is None:
+            try:
+                prev_close = float(fi["previousClose"])
+            except Exception:
+                pass
+        if regular_close is None:
+            p = fi["lastPrice"]
+            if p and p > 0:
+                regular_close = float(p)
+    except Exception:
+        pass
 
-    if spot is None:
+    # 확장장(프리/애프터) 최근 체결 — 정규장과 괴리가 있으면 이게 '지금 시장'
+    try:
+        ext = t.history(period="2d", interval="1h", prepost=True)
+        if ext is not None and not ext.empty:
+            last = float(ext["Close"].dropna().iloc[-1])
+            if last > 0:
+                extended = last
+    except Exception:
+        pass
+
+    if regular_close is None and extended is None:
         raise RuntimeError("현재가를 가져오지 못했습니다.")
 
-    return spot, prev_close, note
+    # 분석 기준가: 확장가가 정규장 대비 1% 이상 다르면 확장가 우선
+    if extended is not None and regular_close is not None:
+        gap_pct = abs(extended - regular_close) / regular_close * 100
+        if gap_pct >= 1.0:
+            spot = extended
+            session = "extended"
+            note = "extended(pre/post)"
+        else:
+            spot = regular_close
+            note = "regular.close"
+    elif extended is not None:
+        spot = extended
+        session = "extended"
+        note = "extended(pre/post)"
+    else:
+        spot = regular_close
+        note = "regular.close"
+
+    vs_regular = None
+    if extended is not None and regular_close is not None:
+        vs_regular = round((extended - regular_close) / regular_close * 100, 2)
+
+    return {
+        "spot": round(spot, 2),
+        "previous_close": round(prev_close, 2) if prev_close else None,
+        "regular_close": round(regular_close, 2) if regular_close else None,
+        "extended_price": round(extended, 2) if extended else None,
+        "extended_vs_regular_pct": vs_regular,
+        "session": session,
+        "spot_source": note,
+    }
 
 
 def _extract_rows(df: pd.DataFrame) -> list[dict]:
@@ -76,7 +124,8 @@ def fetch_ticker(ticker: str) -> dict:
     반환 구조는 snapshot_store 에서 그대로 저장 가능.
     """
     t = yf.Ticker(ticker)
-    spot, prev_close, note = _get_spot_and_prevclose(t)
+    px = _get_price_context(t)
+    spot = px["spot"]
     expiries = select_expiries(ticker)  # {"this_week","next_week","monthly"}
 
     expiry_data: dict[str, dict] = {}
@@ -92,8 +141,12 @@ def fetch_ticker(ticker: str) -> dict:
         "ticker": ticker,
         "date": dt.date.today().isoformat(),
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "spot": round(spot, 2),
-        "previous_close": round(prev_close, 2) if prev_close else None,
-        "spot_source": note,
+        "spot": spot,
+        "previous_close": px["previous_close"],
+        "regular_close": px["regular_close"],
+        "extended_price": px["extended_price"],
+        "extended_vs_regular_pct": px["extended_vs_regular_pct"],
+        "session": px["session"],
+        "spot_source": px["spot_source"],
         "expiries": expiry_data,  # role -> {date, calls[], puts[]}
     }
