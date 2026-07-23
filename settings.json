@@ -1,5 +1,5 @@
 {
-  "tickers": ["IREN"],
+  "tickers": ["IREN", "TSLA", "SPCX"],
   "expiries": ["this_week", "next_week", "monthly"],
   "anomaly_thresholds": {
     "oi_surge_pct": 100,
