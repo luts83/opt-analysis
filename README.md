@@ -80,10 +80,10 @@ python weekly.py --no-email --no-save # 미리보기
    - `EMAIL_APP_PASSWORD` (Gmail 앱 비밀번호)
    - `EMAIL_RECIPIENTS` (수신자, 쉼표 구분)
 3. Actions 탭 → "Daily Options Report" → Run workflow 로 수동 테스트
-4. 이후 cron(기본 07:00 UTC = 영국 아침 7~8시, 화~토)에 맞춰 자동 실행 + 이메일 발송
+4. 이후 cron(기본 05:00 UTC = 영국 아침 6시(BST), 화~토)에 맞춰 자동 실행 + 이메일 발송
    → 전날 미국장(월~금 세션)을 다음날 영국 아침에 정리해 발송(다음 개장 전 준비용)
 
-주간 검증은 `.github/workflows/weekly-report.yml` 가 **토요일 07:00 UTC(영국 토 아침 7~8시)**
+주간 검증은 `.github/workflows/weekly-report.yml` 가 **토요일 05:00 UTC(영국 토 아침 6시 BST)**
 자동 실행 → 그 주 월~금 예측 채점 이메일 발송 + 주간 스냅샷 커밋. (같은 Secrets 사용)
 
 로컬에서 이메일까지 테스트: `python main.py`  (발송 없이: `python main.py --no-email`)
