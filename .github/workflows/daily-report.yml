@@ -1,12 +1,12 @@
 name: Daily Options Report
 
 # 실행 시각:
-#  - 자동: 평일(월~금) 매일. cron 은 UTC 기준.
-#    20:30 UTC ≈ 미 동부 16:30(장 마감 직후). 필요 시 조정하세요.
+#  - 자동: 22:00 UTC = 아침 07:00 KST. cron 은 UTC 기준(한국은 DST 없음).
+#    월~금(UTC) 실행 → 화~토 아침 KST 도착 = 미국 월~금 세션 커버.
 #  - 수동: Actions 탭에서 "Run workflow" 로 언제든 실행 가능(테스트용).
 on:
   schedule:
-    - cron: "30 20 * * 1-5"
+    - cron: "0 22 * * 1-5"
   workflow_dispatch:
 
 # 스냅샷을 repo 에 커밋해야 하므로 쓰기 권한 필요
@@ -34,6 +34,9 @@ jobs:
         env:
           # GitHub → Settings → Secrets and variables → Actions 에 등록
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
         run: |
           python main.py | tee report_output.txt
 

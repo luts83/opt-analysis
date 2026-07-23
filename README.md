@@ -21,15 +21,22 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## API 키 설정 (.env)
+## API 키 / 이메일 설정 (.env)
 
-ChatGPT(OpenAI) 자연어 해설을 쓰려면 `.env` 에 키를 넣는다. 키가 없으면
-자동으로 규칙 기반 요약으로 폴백하므로 없어도 동작한다.
+`.env` 에 키/인증정보를 넣는다. (`.env` 는 git 에 커밋되지 않음)
 
 ```bash
 cp .env.example .env
-# .env 를 열어 OPENAI_API_KEY 를 채운다. (.env 는 git 에 커밋되지 않음)
 ```
+
+- `OPENAI_API_KEY` — ChatGPT 자연어 해설용. 없으면 규칙 기반으로 폴백.
+- `EMAIL_SENDER` / `EMAIL_APP_PASSWORD` / `EMAIL_RECIPIENTS` — 이메일 발송용.
+
+### Gmail 앱 비밀번호 발급
+
+1. Google 계정 2단계 인증(2FA) 활성화
+2. https://myaccount.google.com/apppasswords 에서 앱 비밀번호 생성(16자리)
+3. 그 값을 `EMAIL_APP_PASSWORD` 에 넣는다 (일반 로그인 비번 아님!)
 
 ## 실행
 
@@ -45,9 +52,15 @@ python main.py --ticker IREN     # 특정 종목만
 오늘 스냅샷을 repo 에 커밋한다.
 
 1. GitHub 에 (private) repo 생성 후 이 코드를 push
-2. repo → Settings → Secrets and variables → Actions → `OPENAI_API_KEY` 등록
+2. repo → Settings → Secrets and variables → Actions 에 시크릿 등록:
+   - `OPENAI_API_KEY`
+   - `EMAIL_SENDER` (발신 Gmail)
+   - `EMAIL_APP_PASSWORD` (Gmail 앱 비밀번호)
+   - `EMAIL_RECIPIENTS` (수신자, 쉼표 구분)
 3. Actions 탭 → "Daily Options Report" → Run workflow 로 수동 테스트
-4. 이후 cron(기본 20:30 UTC, 평일)에 맞춰 자동 실행
+4. 이후 cron(기본 22:00 UTC = 아침 7시 KST, 평일)에 맞춰 자동 실행 + 이메일 발송
+
+로컬에서 이메일까지 테스트: `python main.py`  (발송 없이: `python main.py --no-email`)
 
 ## 단위 테스트
 

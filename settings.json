@@ -21,5 +21,10 @@
     "model": "gpt-4o-mini",
     "max_output_tokens": 600,
     "temperature": 0.3
+  },
+  "email": {
+    "enabled": true,
+    "attach_json": true,
+    "subject_prefix": "[옵션리포트]"
   }
 }

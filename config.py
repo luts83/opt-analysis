@@ -62,6 +62,11 @@ _DEFAULTS = {
         "max_output_tokens": 600,
         "temperature": 0.3,
     },
+    "email": {
+        "enabled": True,
+        "attach_json": True,
+        "subject_prefix": "[옵션리포트]",
+    },
 }
 
 
@@ -75,6 +80,7 @@ def _load_settings() -> dict:
             **data.get("anomaly_thresholds", {}),
         }
         merged["llm"] = {**_DEFAULTS["llm"], **data.get("llm", {})}
+        merged["email"] = {**_DEFAULTS["email"], **data.get("email", {})}
         return merged
     return _DEFAULTS
 
@@ -113,3 +119,16 @@ LLM_MODEL: str = os.getenv("OPENAI_MODEL") or _LLM.get("model", "gpt-4o-mini")
 LLM_MAX_TOKENS: int = int(_LLM.get("max_output_tokens", 600))
 LLM_TEMPERATURE: float = float(_LLM.get("temperature", 0.3))
 OPENAI_API_KEY: str | None = os.getenv("OPENAI_API_KEY")
+
+# ---- 이메일(Gmail SMTP) 설정 ----
+_EMAIL = _S["email"]
+EMAIL_ENABLED: bool = bool(_EMAIL.get("enabled", True))
+EMAIL_ATTACH_JSON: bool = bool(_EMAIL.get("attach_json", True))
+EMAIL_SUBJECT_PREFIX: str = _EMAIL.get("subject_prefix", "[옵션리포트]")
+# 인증정보는 환경변수(.env / Actions Secrets)에서만 읽는다
+EMAIL_SENDER: str | None = os.getenv("EMAIL_SENDER")
+EMAIL_APP_PASSWORD: str | None = os.getenv("EMAIL_APP_PASSWORD")
+_recipients_raw = os.getenv("EMAIL_RECIPIENTS", "")
+EMAIL_RECIPIENTS: list[str] = [
+    e.strip() for e in _recipients_raw.split(",") if e.strip()
+]
