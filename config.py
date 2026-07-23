@@ -59,8 +59,8 @@ _DEFAULTS = {
         "enabled": True,
         "provider": "openai",
         "model": "gpt-4o-mini",
-        "max_output_tokens": 600,
-        "temperature": 0.3,
+        "max_output_tokens": 1600,
+        "temperature": 0.5,
     },
     "email": {
         "enabled": True,

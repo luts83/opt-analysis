@@ -28,36 +28,47 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
     """(리포트문자열, 성공여부, 스냅샷경로) 반환."""
     try:
         data = fetch_ticker(ticker)
-        oi_stale = metrics.is_oi_stale(data)
 
+        # OI 신선도 판정 + 전일 OI 보간(carry-forward)
+        oi_stale_raw = metrics.is_oi_stale(data)
         prev = snapshot_store.load_previous_snapshot(
             ticker, data["date"], valid_oi_only=True
         )
         history = snapshot_store.load_history(ticker, data["date"])
+        carried = metrics.apply_oi_fallback(data, prev, oi_stale_raw)
 
-        metrics.enrich_contracts(data, prev, history, oi_stale=oi_stale)
-        base = metrics.build_base_metrics(data, prev=prev, oi_stale=oi_stale)
+        oi_real = not oi_stale_raw           # 오늘 실제 당일 OI 인가
+        oi_available = (not oi_stale_raw) or carried  # 표시할 OI 가 있는가
+        oi_source = (
+            "실시간" if not oi_stale_raw
+            else ("전일 기준(오늘 미갱신)" if carried else "데이터 없음")
+        )
+        data["oi_stale_raw"] = oi_stale_raw
+        data["oi_carried_forward"] = carried
+
+        metrics.enrich_contracts(data, prev, history, oi_real=oi_real)
+        base = metrics.build_base_metrics(data, prev=prev, oi_available=oi_available)
+        base["oi_source"] = oi_source
         data["metrics"] = base
 
-        anomalies = metrics.build_anomalies(data, prev, oi_stale=oi_stale)
+        anomalies = metrics.build_anomalies(data, prev, oi_real=oi_real)
         vol_anom = metrics.build_volume_anomaly(data, history)
+        trend = metrics.build_trend(history, data)
         data["anomalies"] = anomalies
         data["volume_anomaly"] = vol_anom
 
-        rule_insights = insights_mod.build_insights(data, base, anomalies, vol_anom)
-        data["insights"] = rule_insights
-        ai_text, ai_source = insights_mod.build_ai_narrative(
-            data, base, anomalies, vol_anom
+        narrative, narrative_source = insights_mod.build_narrative(
+            data, base, anomalies, vol_anom, prev, trend
         )
-        data["ai_narrative"] = ai_text
-        data["ai_source"] = ai_source
+        data["narrative"] = narrative
+        data["narrative_source"] = narrative_source
 
         path = None
         if save:
             path = snapshot_store.save_snapshot(data)
 
         report = report_builder.build_report(
-            data, base, anomalies, vol_anom, rule_insights, ai_text, ai_source
+            data, base, anomalies, vol_anom, narrative, narrative_source
         )
         if path:
             report += f"\n[저장됨: {path}]"

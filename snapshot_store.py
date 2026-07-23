@@ -47,7 +47,14 @@ def load_snapshot(ticker: str, date: str) -> dict | None:
 def _is_oi_stale(snap: dict | None) -> bool:
     if not snap:
         return False
-    return bool(snap.get("metrics", {}).get("oi_data_stale"))
+    if snap.get("oi_stale_raw"):
+        return True
+    m = snap.get("metrics", {})
+    if m.get("oi_data_stale"):  # 구버전 호환
+        return True
+    if m.get("oi_available") is False:
+        return True
+    return False
 
 
 def load_previous_snapshot(

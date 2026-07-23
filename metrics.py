@@ -8,10 +8,10 @@
 5. Straddle 예상 밴드 (ATM 콜 lastPrice + ATM 풋 lastPrice)
 6. 콜/풋 볼륨 비율
 
-추가(리뷰 피드백 반영):
-- 개별 옵션 행에 voi / openInterest_change_pct / volume_vs_avg_ratio 필드 삽입 (enrich_contracts)
-- top_voi 는 최소 볼륨 필터 적용, top_volume(절대 볼륨) 리스트 별도 제공
-- anomalies: OI 급변을 구조화 배열 + message 로 생성 (build_anomalies)
+OI 데이터 지연 대응:
+- yfinance OI 는 미국 장중/장마감 후에만 채워진다. 장 시작 전에는 전 계약 0.
+- 전 계약의 90% 이상이 0이면 stale 로 보고, 전일 스냅샷의 계약별 OI 를
+  '보간(carry-forward)' 해 마지막으로 알려진 값으로 채운다(명확히 라벨링).
 """
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ import config
 # ------------------------------------------------------------------ #
 
 def voi_ratio(volume: float, open_interest: float) -> float | None:
-    """volume / open_interest. OI 가 0 이면 None."""
     if not open_interest or open_interest <= 0:
         return None
     return volume / open_interest
@@ -45,7 +44,6 @@ def classify_voi(voi: float | None) -> str:
 # ------------------------------------------------------------------ #
 
 def oi_change_rate(today_oi: float, yesterday_oi: float | None) -> float | None:
-    """(오늘 OI - 어제 OI) / 어제 OI. 어제 값이 없거나 0이면 None."""
     if yesterday_oi is None or yesterday_oi <= 0:
         return None
     return (today_oi - yesterday_oi) / yesterday_oi
@@ -56,7 +54,6 @@ def oi_change_rate(today_oi: float, yesterday_oi: float | None) -> float | None:
 # ------------------------------------------------------------------ #
 
 def volume_anomaly(today_volume: float, history_volumes: list[float]) -> bool:
-    """오늘 거래량이 최근 평균 대비 배수 이상인지."""
     vols = [v for v in history_volumes if v and v > 0]
     if not vols:
         return False
@@ -76,6 +73,7 @@ def oi_clusters(rows: list[dict], top_n: int | None = None) -> list[dict]:
     return [
         {"strike": r["strike"], "oi": int(r.get("openInterest", 0))}
         for r in ranked[:top_n]
+        if r.get("openInterest", 0) > 0
     ]
 
 
@@ -122,13 +120,6 @@ def call_put_volume_ratio(data: dict) -> tuple[float | None, int, int]:
 
 
 def sentiment_from_ratio(ratio: float | None) -> str:
-    """콜/풋 볼륨 비율 기반 심리 판단.
-
-    ratio = 콜 볼륨 합 / 풋 볼륨 합
-    - ratio >= 1.2  → 강세 (콜 매수 우위)
-    - ratio <= 0.83 → 약세 (풋 매수 우위)
-    - 그 사이        → 중립
-    """
     if ratio is None:
         return "중립"
     if ratio >= 1.2:
@@ -139,11 +130,10 @@ def sentiment_from_ratio(ratio: float | None) -> str:
 
 
 # ------------------------------------------------------------------ #
-# 개별 옵션 행 보강 (P1, P5)
+# 반복 순회 / 인덱스
 # ------------------------------------------------------------------ #
 
 def _iter_rows(data: dict):
-    """(role, opt_type, leg_date, row) 를 순회."""
     for role, leg in data["expiries"].items():
         for opt_type, rows in (("CALL", leg["calls"]), ("PUT", leg["puts"])):
             for r in rows:
@@ -151,15 +141,52 @@ def _iter_rows(data: dict):
 
 
 def _index_contracts(data: dict) -> dict[tuple, dict]:
-    """(role, opt_type, strike) -> row 인덱스."""
     return {
         (role, opt_type, r["strike"]): r
         for role, opt_type, _date, r in _iter_rows(data)
     }
 
 
+def total_open_interest(data: dict) -> int:
+    return sum(r.get("openInterest", 0) for _r, _t, _d, r in _iter_rows(data))
+
+
+def is_oi_stale(data: dict) -> bool:
+    """전체 계약 중 OI==0 비율이 임계(기본 90%) 이상이면 stale."""
+    total = zeros = 0
+    for _r, _t, _d, r in _iter_rows(data):
+        total += 1
+        if r.get("openInterest", 0) == 0:
+            zeros += 1
+    if total == 0:
+        return False
+    return (zeros / total) >= config.OI_STALE_ZERO_FRACTION
+
+
+def apply_oi_fallback(data: dict, prev: dict | None, oi_stale: bool) -> bool:
+    """stale 이면 전일 스냅샷의 계약별 OI 로 보간한다.
+
+    Returns: 보간이 실제로 이루어졌는지(carried).
+    """
+    if not oi_stale or not prev:
+        return False
+    prev_idx = _index_contracts(prev)
+    carried = False
+    for role, opt_type, _d, r in _iter_rows(data):
+        if r.get("openInterest", 0) == 0:
+            pr = prev_idx.get((role, opt_type, r["strike"]))
+            if pr and pr.get("openInterest", 0) > 0:
+                r["openInterest"] = int(pr["openInterest"])
+                r["oi_carried_forward"] = True
+                carried = True
+    return carried
+
+
+# ------------------------------------------------------------------ #
+# 개별 옵션 행 보강
+# ------------------------------------------------------------------ #
+
 def _history_volume_index(history: list[dict]) -> dict[tuple, list[float]]:
-    """이력 스냅샷들에서 (role, opt_type, strike) -> 볼륨 리스트."""
     idx: dict[tuple, list[float]] = {}
     for h in history:
         for role, opt_type, _date, r in _iter_rows(h):
@@ -170,12 +197,12 @@ def _history_volume_index(history: list[dict]) -> dict[tuple, list[float]]:
 
 
 def enrich_contracts(
-    data: dict, prev: dict | None, history: list[dict], oi_stale: bool = False
+    data: dict, prev: dict | None, history: list[dict], oi_real: bool = True
 ) -> None:
     """각 옵션 행에 voi / openInterest_change_pct / volume_vs_avg_ratio 를 채운다.
 
-    (data 를 제자리에서 수정 → 스냅샷에 그대로 저장됨)
-    oi_stale 이면 OI 파생 필드(voi, openInterest_change_pct)는 신뢰 불가라 None.
+    - voi: OI(보간 포함) > 0 이면 계산.
+    - openInterest_change_pct: 오늘 OI 가 '실제 당일 값'일 때만(oi_real).
     """
     prev_idx = _index_contracts(prev) if prev else {}
     hist_vol = _history_volume_index(history)
@@ -185,17 +212,17 @@ def enrich_contracts(
         vol = r.get("volume", 0)
         key = (role, opt_type, r["strike"])
 
-        if oi_stale:
-            r["voi"] = None
-            r["openInterest_change_pct"] = None
-        else:
-            v = voi_ratio(vol, oi)
-            r["voi"] = round(v, 3) if v is not None else None
+        v = voi_ratio(vol, oi)
+        r["voi"] = round(v, 3) if v is not None else None
+
+        if oi_real:
             pr = prev_idx.get(key)
             rate = oi_change_rate(oi, pr.get("openInterest") if pr else None)
             r["openInterest_change_pct"] = (
                 round(rate * 100, 1) if rate is not None else None
             )
+        else:
+            r["openInterest_change_pct"] = None
 
         vols = [x for x in hist_vol.get(key, []) if x and x > 0]
         if vols:
@@ -210,45 +237,18 @@ def enrich_contracts(
 # ------------------------------------------------------------------ #
 
 def _total_volume(data: dict) -> int:
-    total = 0
-    for leg in data["expiries"].values():
-        total += sum(r.get("volume", 0) for r in leg["calls"])
-        total += sum(r.get("volume", 0) for r in leg["puts"])
-    return total
+    return sum(r.get("volume", 0) for _r, _t, _d, r in _iter_rows(data))
 
 
-def total_open_interest(data: dict) -> int:
-    return sum(r.get("openInterest", 0) for _r, _t, _d, r in _iter_rows(data))
-
-
-def is_oi_stale(data: dict) -> bool:
-    """OI 데이터가 아직 갱신되지 않았는지(장 시작 전/거래소 지연) 판단.
-
-    yfinance 의 openInterest 는 장 마감 후 갱신되므로, 장 시작 전에는
-    거의 모든 계약이 0으로 내려온다. 이 상태를 그대로 쓰면 '전 계약 -100%
-    청산' 같은 가짜 신호가 발생하므로 별도 처리한다.
-
-    판정: 전체 계약 중 OI==0 비율이 임계(기본 90%) 이상이면 stale.
-    (떠돌이 계약 1~2개가 0이 아니어도 흔들리지 않게 '전부 0'이 아닌 비율로 판단)
-    """
-    total = 0
-    zeros = 0
-    for _r, _t, _d, r in _iter_rows(data):
-        total += 1
-        if r.get("openInterest", 0) == 0:
-            zeros += 1
-    if total == 0:
-        return False
-    return (zeros / total) >= config.OI_STALE_ZERO_FRACTION
+def _volume_rank(rows_with_meta: list[dict], n: int) -> list[dict]:
+    ranked = sorted(rows_with_meta, key=lambda x: x["volume"], reverse=True)
+    return ranked[:n]
 
 
 def build_base_metrics(
-    data: dict, prev: dict | None = None, oi_stale: bool = False
+    data: dict, prev: dict | None = None, oi_available: bool = True
 ) -> dict:
-    """오늘 데이터만으로 계산 가능한 지표. (enrich_contracts 이후 호출)
-
-    oi_stale 이면 OI 기반 지표(클러스터)는 전일(prev) 값으로 폴백한다.
-    """
+    """오늘 데이터로 지표 계산. oi_available=False 면 OI 지표 폴백/생략."""
     spot = data["spot"]
     ratio, call_vol, put_vol = call_put_volume_ratio(data)
 
@@ -256,13 +256,12 @@ def build_base_metrics(
 
     expiry_metrics: dict[str, dict] = {}
     for role, leg in data["expiries"].items():
-        if oi_stale and prev_em.get(role):
-            # OI 미갱신 → 전일 클러스터를 그대로 사용 (마지막으로 알려진 값)
+        if not oi_available and prev_em.get(role):
             call_clusters = prev_em[role].get("call_oi_clusters", [])
             put_clusters = prev_em[role].get("put_oi_clusters", [])
         else:
-            call_clusters = oi_clusters(leg["calls"])   # 저항선 후보
-            put_clusters = oi_clusters(leg["puts"])      # 지지선 후보
+            call_clusters = oi_clusters(leg["calls"])
+            put_clusters = oi_clusters(leg["puts"])
         expiry_metrics[role] = {
             "date": leg["date"],
             "straddle": straddle_band(spot, leg["calls"], leg["puts"]),
@@ -270,9 +269,10 @@ def build_base_metrics(
             "put_oi_clusters": put_clusters,
         }
 
-    # V/OI 상위 (P2: 최소 볼륨 필터로 노이즈 제거)
-    voi_candidates = []
-    volume_candidates = []
+    # V/OI 상위 + 콜/풋 거래량 상위 (분리)
+    voi_candidates: list[dict] = []
+    call_vol_rows: list[dict] = []
+    put_vol_rows: list[dict] = []
     for role, opt_type, date, r in _iter_rows(data):
         oi = r.get("openInterest", 0)
         vol = r.get("volume", 0)
@@ -285,13 +285,16 @@ def build_base_metrics(
             "oi": oi,
             "voi": r.get("voi"),
             "class": classify_voi(r.get("voi")),
+            "oi_carried_forward": bool(r.get("oi_carried_forward")),
         }
-        volume_candidates.append(entry)
+        if opt_type == "CALL":
+            call_vol_rows.append(entry)
+        else:
+            put_vol_rows.append(entry)
         if r.get("voi") is not None and oi >= config.VOI_MIN_OI and vol >= config.VOI_MIN_VOLUME:
             voi_candidates.append(entry)
 
     voi_candidates.sort(key=lambda x: x["voi"], reverse=True)
-    volume_candidates.sort(key=lambda x: x["volume"], reverse=True)
 
     return {
         "call_put_volume_ratio": round(ratio, 3) if ratio is not None else None,
@@ -301,27 +304,22 @@ def build_base_metrics(
         "total_put_volume": put_vol,
         "total_volume": _total_volume(data),
         "total_open_interest": total_open_interest(data),
-        "oi_data_stale": oi_stale,
-        "oi_source": "전일 스냅샷 기준 (오늘 OI 미갱신)" if oi_stale else "오늘",
+        "oi_available": oi_available,
         "expiry_metrics": expiry_metrics,
         "top_voi": voi_candidates[: config.VOI_TOP_N],
-        "top_volume": volume_candidates[: config.TOP_VOLUME_N],
+        "top_call_volume": _volume_rank(call_vol_rows, config.TOP_VOLUME_N),
+        "top_put_volume": _volume_rank(put_vol_rows, config.TOP_VOLUME_N),
     }
 
 
 # ------------------------------------------------------------------ #
-# 이상 신호(anomalies) 구조화 (P3)
+# 이상 신호(anomalies)
 # ------------------------------------------------------------------ #
 
-def build_anomalies(
-    data: dict, prev: dict | None, oi_stale: bool = False
-) -> list[dict]:
-    """어제 대비 OI 급변을 구조화 배열로 생성한다.
-
-    oi_stale(오늘 OI 미갱신) 이면 가짜 '-100% 청산' 신호를 막기 위해 건너뛴다.
-    """
+def build_anomalies(data: dict, prev: dict | None, oi_real: bool = True) -> list[dict]:
+    """어제 대비 OI 급변. 오늘 OI 가 실제 당일 값일 때만(oi_real) 계산."""
     anomalies: list[dict] = []
-    if not prev or oi_stale:
+    if not prev or not oi_real:
         return anomalies
 
     prev_idx = _index_contracts(prev)
@@ -364,7 +362,6 @@ def build_anomalies(
 
 
 def build_volume_anomaly(data: dict, history: list[dict]) -> dict | None:
-    """전체 거래량이 최근 평균 대비 이상인지."""
     hist_vols = [
         h.get("metrics", {}).get("total_volume")
         for h in history
@@ -380,3 +377,20 @@ def build_volume_anomaly(data: dict, history: list[dict]) -> dict | None:
         "recent_avg": round(avg, 1),
         "mult": round(today_total / avg, 2) if avg else None,
     }
+
+
+def build_trend(history: list[dict], today: dict) -> list[dict]:
+    """최근 며칠 핵심 지표 추이 (AI 해설이 트렌드를 읽도록)."""
+    def _row(snap):
+        m = snap.get("metrics", {})
+        return {
+            "date": snap.get("date"),
+            "spot": snap.get("spot"),
+            "sentiment": m.get("sentiment"),
+            "call_put_volume_ratio": m.get("call_put_volume_ratio"),
+            "total_volume": m.get("total_volume"),
+        }
+
+    rows = [_row(h) for h in sorted(history, key=lambda s: s.get("date", ""))]
+    rows.append(_row(today))
+    return rows[-6:]  # 최근 6일
