@@ -64,7 +64,13 @@ def send_email(
             filename=p.name,
         )
 
-    context = ssl.create_default_context()
+    # certifi 의 CA 번들을 우선 사용 (macOS Python 의 인증서 누락 문제 회피)
+    try:
+        import certifi
+
+        context = ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # certifi 없으면 시스템 기본
+        context = ssl.create_default_context()
     try:
         with smtplib.SMTP_SSL(_SMTP_HOST, _SMTP_PORT, context=context) as server:
             server.login(config.EMAIL_SENDER, config.EMAIL_APP_PASSWORD)
