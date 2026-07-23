@@ -125,6 +125,9 @@ _EMAIL = _S["email"]
 EMAIL_ENABLED: bool = bool(_EMAIL.get("enabled", True))
 EMAIL_ATTACH_JSON: bool = bool(_EMAIL.get("attach_json", True))
 EMAIL_SUBJECT_PREFIX: str = _EMAIL.get("subject_prefix", "[옵션리포트]")
+EMAIL_WEEKLY_SUBJECT_PREFIX: str = _EMAIL.get(
+    "weekly_subject_prefix", "[옵션주간검증]"
+)
 # 인증정보는 환경변수(.env / Actions Secrets)에서만 읽는다
 EMAIL_SENDER: str | None = os.getenv("EMAIL_SENDER")
 EMAIL_APP_PASSWORD: str | None = os.getenv("EMAIL_APP_PASSWORD")

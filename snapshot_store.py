@@ -81,6 +81,50 @@ def load_previous_snapshot(
     return None
 
 
+def list_snapshots_between(ticker: str, start: str, end: str) -> list[dict]:
+    """[start, end] (YYYY-MM-DD, 포함) 사이의 일일 스냅샷을 날짜순으로 반환."""
+    d = _ticker_dir(ticker)
+    if not d.exists():
+        return []
+    out = []
+    for p in sorted(d.glob("*.json")):
+        if start <= p.stem <= end:
+            snap = _load(p)
+            if snap:
+                out.append(snap)
+    return out
+
+
+def _weekly_dir(ticker: str) -> Path:
+    return _ticker_dir(ticker) / "weekly"
+
+
+def save_weekly(snapshot: dict) -> Path:
+    """주간 검증 스냅샷 저장: snapshots/<T>/weekly/<주말금요일>.json"""
+    d = _weekly_dir(snapshot["ticker"])
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{snapshot['week_ending']}.json"
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(snapshot, f, ensure_ascii=False, indent=2)
+    return path
+
+
+def load_weekly_history(ticker: str, before_ending: str, limit: int = 4) -> list[dict]:
+    """before_ending 이전 주간 스냅샷을 최신순으로 최대 limit 개."""
+    d = _weekly_dir(ticker)
+    if not d.exists():
+        return []
+    candidates = sorted(
+        (p for p in d.glob("*.json") if p.stem < before_ending), reverse=True
+    )[:limit]
+    out = []
+    for p in candidates:
+        s = _load(p)
+        if s:
+            out.append(s)
+    return out
+
+
 def load_history(ticker: str, before_date: str, limit: int = 20) -> list[dict]:
     """before_date 이전의 스냅샷들을 최신순으로 최대 limit 개 반환 (거래량 평균용)."""
     d = _ticker_dir(ticker)

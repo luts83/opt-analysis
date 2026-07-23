@@ -125,3 +125,62 @@ def generate_report(data, base, anomalies, volume_anomaly, prev, trend) -> str |
     except Exception as e:  # noqa: BLE001
         print(f"[llm] OpenAI 호출 실패 → 규칙기반 폴백: {e}")
         return None
+
+
+# ------------------------------------------------------------------ #
+# 주간 검증 리포트 (백테스트 성적표 해설)
+# ------------------------------------------------------------------ #
+
+_WEEKLY_SYSTEM_PROMPT = """너는 지난 한 주 '옵션 시장의 예측'이 실제 주가와 얼마나 맞았는지 채점하고,
+그 결과를 '옵션을 모르는 일반 투자자'에게 쉽게 설명하는 애널리스트다.
+
+절대 규칙:
+- 전문 용어는 나올 때마다 쉽게 풀어 설명하고 비유를 쓴다.
+- 제공된 점수/데이터만 사용하고 숫자를 지어내지 않는다.
+- '무엇이 잘 맞았고 무엇이 빗나갔는지', 그리고 '그게 무슨 의미인지'를 해석한다.
+- 옵션 시장이 미리 신호를 줬는지(예: 특정 방향/저항 근처 집중) 데이터 근거로만 언급.
+  뉴스 내용을 모르면 '뉴스 확인 필요'로만 표시.
+- 최근 몇 주 추이가 있으면 '어떤 지표가 꾸준히 맞고 못 맞는지'를 짚는다.
+- 톤: 친근하고 솔직하게. 이모지로 섹션 구분.
+
+다음 구조(마크다운, 이모지 헤더)로 작성한다:
+1. 🧾 제목 줄(그대로): 이번 주 {티커} 옵션 예측 성적표 - {주간}   ← "제목:" 같은 접두어 없이 제목만
+2. 🏆 종합 성적 (등급/점수를 한 줄로, 잘했으면 칭찬 못했으면 솔직히)
+3. 📐 예상 범위 vs 실제 (밴드가 실제 변동을 담았는지, 비유로)
+4. 🔴 저항선 / 🟢 지지선 채점 (예상 대비 실제 고가/저가)
+5. 🧭 방향 예측 채점 (강세/약세 예상 vs 실제 주간 수익률)
+6. 💡 이번 주 배운 것 (어떤 지표가 잘 맞았나 / 다음 주 참고사항)
+7. 📅 최근 추이 (최근 몇 주 정확도 흐름 — 데이터 있을 때만)
+8. 맨 끝: "⚠️ 이 리포트는 투자 조언이 아니라 예측 검증 기록입니다."
+
+예측이 그 주 첫 스냅샷 기준이거나 데이터가 일부만 있으면 그 사실을 한 번 알려준다."""
+
+
+def generate_weekly(payload: dict) -> str | None:
+    if not config.LLM_ENABLED or config.LLM_PROVIDER != "openai":
+        return None
+    if not config.OPENAI_API_KEY:
+        return None
+    try:
+        from openai import OpenAI
+
+        client = OpenAI(api_key=config.OPENAI_API_KEY)
+        resp = client.chat.completions.create(
+            model=config.LLM_MODEL,
+            temperature=config.LLM_TEMPERATURE,
+            max_tokens=config.LLM_MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": _WEEKLY_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": "아래 채점 결과로 주간 검증 리포트를 작성해줘. "
+                    "일반인이 읽기 쉽게, 비유와 해석 위주로:\n"
+                    + json.dumps(payload, ensure_ascii=False, indent=2),
+                },
+            ],
+        )
+        text = resp.choices[0].message.content
+        return text.strip() if text else None
+    except Exception as e:  # noqa: BLE001
+        print(f"[llm] 주간 OpenAI 호출 실패 → 규칙기반 폴백: {e}")
+        return None

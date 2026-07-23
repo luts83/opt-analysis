@@ -1,0 +1,61 @@
+name: Weekly Validation Report
+
+# 실행 시각:
+#  - 자동: 금요일 22:00 UTC = 토요일 07:00 KST(미국 금요일 장 마감 후).
+#    그 주 월~금 예측을 실제 주간 OHLC 와 비교해 채점한다.
+#  - 수동: Actions 탭에서 "Run workflow" 로 언제든 실행 가능(테스트용).
+on:
+  schedule:
+    - cron: "0 22 * * 5"
+  workflow_dispatch:
+
+# 주간 스냅샷을 repo 에 커밋해야 하므로 쓰기 권한 필요
+permissions:
+  contents: write
+
+jobs:
+  weekly:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run weekly validation
+        env:
+          # GitHub → Settings → Secrets and variables → Actions 에 등록
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+          EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
+          EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+        run: |
+          python weekly.py | tee weekly_output.txt
+
+      - name: Upload weekly report as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: weekly-report
+          path: |
+            weekly_output.txt
+            snapshots/**/weekly/*.json
+
+      - name: Commit weekly snapshot
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add snapshots/
+          if git diff --staged --quiet; then
+            echo "커밋할 주간 스냅샷 변경 없음"
+          else
+            git commit -m "chore: 주간 검증 스냅샷 $(date -u +%Y-%m-%d)"
+            git push
+          fi

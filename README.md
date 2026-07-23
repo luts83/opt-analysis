@@ -46,6 +46,28 @@ python main.py --no-save         # 저장 없이 미리보기
 python main.py --ticker IREN     # 특정 종목만
 ```
 
+## 주간 검증 리포트 (백테스트)
+
+그 주 월요일(그 주 첫 스냅샷) 예측을 **실제 주간 OHLC** 와 비교해 채점한다.
+항목별 정확도(밴드/저항/지지/방향) + 종합 성적(A~F, 100점) + 최근 4주 추이 + AI 해설.
+
+```bash
+python weekly.py                 # 오늘이 속한 주 검증 + 스냅샷 저장 + 이메일
+python weekly.py --date 2026-07-24   # 해당 날짜가 속한 주 검증
+python weekly.py --no-email --no-save # 미리보기
+```
+
+채점 방식(요약):
+
+| 항목 | 채점 | 가중치 |
+|---|---|---|
+| 밴드(범위) | 실제 고/저가가 예상 밴드 안이면 100, 이탈폭만큼 감점 | 35% |
+| 방향 | 예상 심리(강세/약세) vs 실제 주간 수익률 부호 일치 | 30% |
+| 저항선 | 실제 고가가 예상 저항에 가까울수록 고득점 | 17.5% |
+| 지지선 | 실제 저가가 예상 지지에 가까울수록 고득점 | 17.5% |
+
+주간 스냅샷은 `snapshots/<TICKER>/weekly/<주말금요일>.json` 에 쌓인다.
+
 ## 배포 (GitHub Actions)
 
 `.github/workflows/daily-report.yml` 가 평일마다 자동 실행되어 리포트를 만들고
@@ -59,6 +81,9 @@ python main.py --ticker IREN     # 특정 종목만
    - `EMAIL_RECIPIENTS` (수신자, 쉼표 구분)
 3. Actions 탭 → "Daily Options Report" → Run workflow 로 수동 테스트
 4. 이후 cron(기본 22:00 UTC = 아침 7시 KST, 평일)에 맞춰 자동 실행 + 이메일 발송
+
+주간 검증은 `.github/workflows/weekly-report.yml` 가 **금요일 22:00 UTC(토 아침 7시 KST)**
+자동 실행 → 주간 성적표 이메일 발송 + 주간 스냅샷 커밋. (같은 Secrets 사용)
 
 로컬에서 이메일까지 테스트: `python main.py`  (발송 없이: `python main.py --no-email`)
 
@@ -77,12 +102,14 @@ data_fetch.py        # yfinance 로 옵션 체인 + 현재가 수집
 expiry_selector.py   # 만기일 선택 (이번주/다음주/월간)
 metrics.py           # V/OI, straddle band, OI 밀집, 이상신호(anomalies) 등
 insights.py          # 규칙 기반 인사이트 + AI 해설 오케스트레이션
-llm.py               # ChatGPT(OpenAI) 자연어 해설 (.env 키 사용, 실패 시 폴백)
-snapshot_store.py    # 스냅샷 JSON 저장/로드
+llm.py               # ChatGPT(OpenAI) 자연어 해설 (일일/주간, .env 키 사용, 실패 시 폴백)
+snapshot_store.py    # 스냅샷 JSON 저장/로드 (일일 + 주간)
 report_builder.py    # 텍스트 리포트 조립
-main.py              # 엔트리포인트
-snapshots/IREN/      # 날짜별 JSON 스냅샷이 쌓임
-.github/workflows/   # GitHub Actions (매일 자동 실행)
+main.py              # 일일 리포트 엔트리포인트
+weekly_metrics.py    # 주간 검증 채점(밴드/저항/지지/방향 정확도 + 종합 성적)
+weekly.py            # 주간 검증 리포트 엔트리포인트
+snapshots/IREN/      # 날짜별 JSON 스냅샷 (+ weekly/ 주간 스냅샷)
+.github/workflows/   # GitHub Actions (일일 매평일 + 주간 금요일)
 ```
 
 ## 지표 정의 (요약)
