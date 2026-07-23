@@ -22,13 +22,54 @@ def _fmt_clusters_sentence(clusters: list[dict], verb: str) -> str:
     return s
 
 
-def build_friendly_fallback(data, base, anomalies, volume_anomaly, prev) -> str:
+def _events_lines(eventinfo: dict | None) -> list[str]:
+    """어닝 경고 / 옵션 반응 / 뉴스 / 가격 이상치 라인(폴백용)."""
+    if not eventinfo:
+        return []
+    L: list[str] = []
+    earn = eventinfo.get("earnings")
+    if earn and earn.get("message"):
+        L.append(earn["message"])
+        L.append("")
+    price = eventinfo.get("price") or {}
+    if price.get("note"):
+        L.append(f"💱 가격 주의: {price['note']}")
+        L.append("")
+    react = eventinfo.get("options_reaction") or {}
+    if react.get("available") and react.get("highlights"):
+        L.append("🌊 어닝 전후 옵션 반응")
+        for h in react["highlights"]:
+            L.append(f"- {h}")
+        if react.get("note"):
+            L.append(f"※ {react['note']}")
+        L.append("")
+    elif react and react.get("note") and not react.get("available"):
+        L.append(f"🌊 옵션 반응: {react['note']}")
+        L.append("")
+    news = eventinfo.get("news") or []
+    if news:
+        L.append("📰 최신 뉴스 헤드라인")
+        for n in news[:5]:
+            pub = f" ({n['publisher']})" if n.get("publisher") else ""
+            L.append(f"- {n['title']}{pub}")
+        L.append("")
+    return L
+
+
+def build_friendly_fallback(data, base, anomalies, volume_anomaly, prev,
+                            eventinfo=None) -> str:
     """LLM 없이도 읽히는 친근한 리포트(규칙 기반)."""
     spot = data["spot"]
     prev_close = data.get("previous_close")
+    earn = (eventinfo or {}).get("earnings") or {}
+    in_earnings = earn.get("phase") in ("임박", "직후")
+
     L: list[str] = []
     L.append(f"📊 오늘의 {data['ticker']} 옵션 시장 이야기 - {data['date']}")
     L.append("")
+
+    # 이벤트/뉴스는 최상단에 (어닝 경고를 놓치지 않도록)
+    L.extend(_events_lines(eventinfo))
 
     if prev_close:
         chg = round((spot - prev_close) / prev_close * 100, 2)
@@ -42,7 +83,15 @@ def build_friendly_fallback(data, base, anomalies, volume_anomaly, prev) -> str:
     senti = base.get("sentiment")
     mood = {"강세": "상승 쪽에 기대가 큰", "약세": "하락을 걱정하는", "중립": "관망하는"}.get(senti, "")
     L.append("🎯 한 줄 요약")
-    L.append(f"오늘 시장은 {mood} 분위기예요. (콜/풋 비율 {base.get('call_put_volume_ratio')})")
+    if in_earnings:
+        sur = earn.get("surprise_pct")
+        sur_s = f" (EPS 서프라이즈 {sur:+.1f}%)" if sur is not None else ""
+        L.append(
+            f"지금은 실적 발표 {earn.get('phase')} 국면이에요{sur_s}. "
+            f"콜/풋 비율상 분위기는 '{senti}'처럼 보이지만, 어닝 전후엔 단정하지 마세요."
+        )
+    else:
+        L.append(f"오늘 시장은 {mood} 분위기예요. (콜/풋 비율 {base.get('call_put_volume_ratio')})")
     L.append("")
 
     near = base["expiry_metrics"].get("this_week") or next(
@@ -64,8 +113,9 @@ def build_friendly_fallback(data, base, anomalies, volume_anomaly, prev) -> str:
     if cpr:
         up = round(cpr / (1 + cpr) * 100)
         L.append("🌡️ 오늘 시장 온도")
+        caveat = " (어닝 국면 — 참고용, 단정 금지)" if in_earnings else ""
         L.append(f"오늘 옵션 거래에서 약 100명 중 {up}명은 상승, {100-up}명은 하락에 걸었어요. "
-                 f"→ 분위기는 '{senti}'.")
+                 f"→ 분위기는 '{senti}'{caveat}.")
         L.append("")
 
     # 예상 범위
@@ -86,6 +136,8 @@ def build_friendly_fallback(data, base, anomalies, volume_anomaly, prev) -> str:
 
     # 액션
     L.append("🎯 그래서 뭘 해야 하나")
+    if in_earnings:
+        L.append("- 실적 발표 전후예요. 변동성이 크니 서두른 매매보다 지지/저항 반응을 우선 보세요.")
     if near["put_oi_clusters"]:
         L.append(f"- 보유 중이면 ${near['put_oi_clusters'][0]['strike']:g} 지지선이 지켜지는지 보세요.")
     if near["call_oi_clusters"]:
@@ -96,11 +148,17 @@ def build_friendly_fallback(data, base, anomalies, volume_anomaly, prev) -> str:
     return "\n".join(L)
 
 
-def build_narrative(data, base, anomalies, volume_anomaly, prev, trend) -> tuple[str, str]:
+def build_narrative(data, base, anomalies, volume_anomaly, prev, trend,
+                    eventinfo=None) -> tuple[str, str]:
     """(본문, 출처). 출처: 'openai' | 'rule'."""
     import llm
 
-    text = llm.generate_report(data, base, anomalies, volume_anomaly, prev, trend)
+    text = llm.generate_report(
+        data, base, anomalies, volume_anomaly, prev, trend, eventinfo
+    )
     if text:
         return text, "openai"
-    return build_friendly_fallback(data, base, anomalies, volume_anomaly, prev), "rule"
+    return (
+        build_friendly_fallback(data, base, anomalies, volume_anomaly, prev, eventinfo),
+        "rule",
+    )

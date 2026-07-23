@@ -67,6 +67,12 @@ _DEFAULTS = {
         "attach_json": True,
         "subject_prefix": "[옵션리포트]",
     },
+    "events": {
+        "enabled": True,
+        "earnings_window_days": 3,
+        "news_count": 5,
+        "price_move_alert_pct": 8.0,
+    },
 }
 
 
@@ -81,6 +87,7 @@ def _load_settings() -> dict:
         }
         merged["llm"] = {**_DEFAULTS["llm"], **data.get("llm", {})}
         merged["email"] = {**_DEFAULTS["email"], **data.get("email", {})}
+        merged["events"] = {**_DEFAULTS["events"], **data.get("events", {})}
         return merged
     return _DEFAULTS
 
@@ -135,3 +142,10 @@ _recipients_raw = os.getenv("EMAIL_RECIPIENTS", "")
 EMAIL_RECIPIENTS: list[str] = [
     e.strip() for e in _recipients_raw.split(",") if e.strip()
 ]
+
+# ---- 이벤트/뉴스 설정 ----
+_EV = _S["events"]
+EVENTS_ENABLED: bool = bool(_EV.get("enabled", True))
+EARNINGS_WINDOW_DAYS: int = int(_EV.get("earnings_window_days", 3))
+NEWS_COUNT: int = int(_EV.get("news_count", 5))
+PRICE_MOVE_ALERT_PCT: float = float(_EV.get("price_move_alert_pct", 8.0))

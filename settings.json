@@ -27,5 +27,11 @@
     "attach_json": true,
     "subject_prefix": "[옵션리포트]",
     "weekly_subject_prefix": "[옵션주간검증]"
+  },
+  "events": {
+    "enabled": true,
+    "earnings_window_days": 3,
+    "news_count": 5,
+    "price_move_alert_pct": 8.0
   }
 }

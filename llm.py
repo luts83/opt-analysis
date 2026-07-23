@@ -18,19 +18,32 @@ _SYSTEM_PROMPT = """너는 주식 옵션 데이터를 '옵션을 전혀 모르�
 - 숫자만 나열하지 말고 '왜 그런지', '어제 대비 무엇이 바뀌었는지'를 해석한다.
 - 제공된 '최근 추이' 데이터를 활용해 흐름(며칠째 상승/하락, 심리 변화 등)을 짚는다.
 - '그래서 어떻게 활용할지' 액션 포인트를 반드시 포함한다(보유 중/매수 고민 중/주의 신호).
-- 제공된 값만 사용하고 숫자를 지어내지 않는다. 뉴스 내용은 모르면 '뉴스 확인 필요'로만 언급.
+- 제공된 값만 사용하고 숫자를 지어내지 않는다.
 - 톤: 친한 친구가 편하게 설명하는 말투. 이모지로 섹션을 구분해 스캔하기 쉽게.
+
+[이벤트/뉴스/어닝 옵션 반응 — 매우 중요]
+- 입력의 '이벤트'에 '실적발표(어닝)' 경고가 있으면, 리포트 맨 위에 눈에 띄게 경고한다.
+- 어닝 임박/직후이면 콜/풋 볼륨 기반 '강세/약세'를 절대 단정하지 말고 '보류/주의'로 다룬다.
+  EPS 서프라이즈(상회/하회)가 있으면 그 숫자를 반드시 언급한다.
+- '옵션반응'이 있으면 반드시 별도 섹션으로 해석한다:
+  밴드(변동성 기대) 확대/축소, 옵션 거래량 변화, 심리 전환 여부를 쉬운 말로.
+  어닝 국면에선 밴드·거래량이 방향성(콜/풋)보다 더 중요하다고 분명히 말한다.
+- '뉴스헤드라인'은 제공된 사실만 사용한다(없는 내용은 지어내지 말 것).
+- '가격주의' 노트가 있으면 현재가를 단정하지 말고 그 주의를 전달한다.
 
 다음 구조(마크다운, 이모지 헤더)로 작성한다:
 1. 📊 제목 줄:  "오늘의 {티커} 옵션 시장 이야기 - {날짜}"
-2. 💰 지금 주가 + 어제 대비 (한 줄)
-3. 🎯 한 줄 요약 (오늘 시장 분위기를 2~3문장으로)
-4. 🟢 지지선 / 🔴 저항선 (비유로 설명, 각 1~2개)
-5. 🌡️ 시장 온도 (콜/풋 비율 해석 — 몇 명 중 몇 명이 상승/하락에 걸었는지 식으로)
-6. 📈 이번주 예상 범위 (스트래들 밴드가 뭔지 풀어서)
-7. ⚠️ 오늘 특이한 일 (거래량 급증·OI 변화가 있으면)
-8. 🎯 그래서 뭘 해야 하나 (보유 중 / 매수 고민 중 / 주의)
-9. 맨 끝: "⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다."
+2. 🚨 이벤트 경고 (어닝 임박/직후 또는 가격 이상 급변이 있을 때만; 없으면 생략)
+3. 💰 지금 주가 + 어제 대비 (한 줄; 가격주의가 있으면 함께)
+4. 🎯 한 줄 요약 (어닝 국면이면 '심리 단정 보류' + EPS 결과 한 줄)
+5. 🌊 어닝 전후 옵션 반응 (옵션반응이 있을 때만; 밴드/거래량/심리 변화)
+6. 🟢 지지선 / 🔴 저항선 (비유로 설명, 각 1~2개)
+7. 🌡️ 시장 온도 (콜/풋 비율 — 어닝 국면이면 '참고용, 단정 금지' 명시)
+8. 📈 이번주 예상 범위 (스트래들 밴드가 뭔지 풀어서)
+9. 📰 관련 뉴스 (제공된 헤드라인 2~4개; 없으면 생략)
+10. ⚠️ 오늘 특이한 일 (거래량 급증·OI 변화·어닝 등)
+11. 🎯 그래서 뭘 해야 하나 (보유 중 / 매수 고민 중 / 주의 — 어닝이면 변동성 주의 강조)
+12. 맨 끝: "⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다."
 
 OI 데이터가 '전일 기준'이라고 표시돼 있으면, 그 사실을 자연스럽게 한 번 알려준다."""
 
@@ -67,7 +80,35 @@ def _prev_summary(prev: dict | None) -> dict | None:
     }
 
 
-def _build_payload(data, base, anomalies, volume_anomaly, prev, trend) -> dict:
+def _events_block(eventinfo: dict | None) -> dict | None:
+    if not eventinfo:
+        return None
+    earn = eventinfo.get("earnings")
+    react = eventinfo.get("options_reaction")
+    return {
+        "실적발표": (
+            {
+                "국면": earn.get("phase"),
+                "발표일": earn.get("date"),
+                "경고문": earn.get("message"),
+                "EPS예상": earn.get("eps_estimate"),
+                "EPS실제": earn.get("eps_reported"),
+                "서프라이즈_퍼센트": earn.get("surprise_pct"),
+            }
+            if earn
+            else None
+        ),
+        "옵션반응": react,
+        "가격주의": (eventinfo.get("price") or {}).get("note"),
+        "뉴스헤드라인": [
+            {"제목": n.get("title"), "매체": n.get("publisher")}
+            for n in (eventinfo.get("news") or [])[:5]
+        ],
+    }
+
+
+def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
+                   eventinfo=None) -> dict:
     spot = data["spot"]
     prev_close = data.get("previous_close")
     change_pct = (
@@ -81,6 +122,7 @@ def _build_payload(data, base, anomalies, volume_anomaly, prev, trend) -> dict:
         "현재가": spot,
         "전일종가": prev_close,
         "전일대비_퍼센트": change_pct,
+        "이벤트": _events_block(eventinfo),
         "OI_데이터_신선도": _oi_freshness_text(base),
         "시장심리": base.get("sentiment"),
         "콜풋볼륨비": cpr,
@@ -96,7 +138,8 @@ def _build_payload(data, base, anomalies, volume_anomaly, prev, trend) -> dict:
     }
 
 
-def generate_report(data, base, anomalies, volume_anomaly, prev, trend) -> str | None:
+def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
+                    eventinfo=None) -> str | None:
     if not config.LLM_ENABLED or config.LLM_PROVIDER != "openai":
         return None
     if not config.OPENAI_API_KEY:
@@ -105,7 +148,9 @@ def generate_report(data, base, anomalies, volume_anomaly, prev, trend) -> str |
         from openai import OpenAI
 
         client = OpenAI(api_key=config.OPENAI_API_KEY)
-        payload = _build_payload(data, base, anomalies, volume_anomaly, prev, trend)
+        payload = _build_payload(
+            data, base, anomalies, volume_anomaly, prev, trend, eventinfo
+        )
         resp = client.chat.completions.create(
             model=config.LLM_MODEL,
             temperature=config.LLM_TEMPERATURE,
