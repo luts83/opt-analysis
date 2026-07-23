@@ -32,11 +32,14 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
 
         # OI 신선도 판정 + 전일 OI 보간(carry-forward)
         oi_stale_raw = metrics.is_oi_stale(data)
-        prev = snapshot_store.load_previous_snapshot(
+        prev_oi = snapshot_store.load_previous_snapshot(
             ticker, data["date"], valid_oi_only=True
         )
+        prev_any = snapshot_store.load_previous_snapshot(
+            ticker, data["date"], valid_oi_only=False
+        )
         history = snapshot_store.load_history(ticker, data["date"])
-        carried = metrics.apply_oi_fallback(data, prev, oi_stale_raw)
+        carried = metrics.apply_oi_fallback(data, prev_oi, oi_stale_raw)
 
         oi_real = not oi_stale_raw           # 오늘 실제 당일 OI 인가
         oi_available = (not oi_stale_raw) or carried  # 표시할 OI 가 있는가
@@ -47,16 +50,21 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         data["oi_stale_raw"] = oi_stale_raw
         data["oi_carried_forward"] = carried
 
-        metrics.enrich_contracts(data, prev, history, oi_real=oi_real)
-        base = metrics.build_base_metrics(data, prev=prev, oi_available=oi_available)
+        metrics.enrich_contracts(data, prev_oi, history, oi_real=oi_real)
+        base = metrics.build_base_metrics(data, prev=prev_oi, oi_available=oi_available)
         base["oi_source"] = oi_source
+        base["levels"] = metrics.build_levels(base, data["spot"])
+        base["band_trend"] = metrics.build_band_trend(base)
         data["metrics"] = base
 
-        anomalies = metrics.build_anomalies(data, prev, oi_real=oi_real)
+        # OI 급변은 당일 OI 가 실측일 때만. 어제 대비(주가·거래량·심리)는 항상.
+        anomalies = metrics.build_anomalies(data, prev_oi, oi_real=oi_real)
         vol_anom = metrics.build_volume_anomaly(data, history)
+        dod = metrics.build_day_over_day(data, base, prev_any)
         trend = metrics.build_trend(history, data)
         data["anomalies"] = anomalies
         data["volume_anomaly"] = vol_anom
+        data["day_over_day"] = dod
 
         # 이벤트/뉴스(어닝·헤드라인·가격·옵션 반응·다음장 시나리오) 수집
         eventinfo = events_mod.collect_events(
@@ -64,13 +72,13 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
             data["spot"],
             data.get("previous_close"),
             base=base,
-            prev=prev,
+            prev=prev_any,
             data=data,
         )
         data["events"] = eventinfo
 
         narrative, narrative_source = insights_mod.build_narrative(
-            data, base, anomalies, vol_anom, prev, trend, eventinfo
+            data, base, anomalies, vol_anom, prev_any, trend, eventinfo, dod
         )
         data["narrative"] = narrative
         data["narrative_source"] = narrative_source

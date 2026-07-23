@@ -389,30 +389,24 @@ def next_session_scenarios(
     data: dict | None = None,
     earnings: dict | None = None,
 ) -> dict | None:
-    """옵션 거래 집중 구간과 (가능하면) 장외 시세를 바탕으로
-    '다음 장에서 뭘 보면 되는지' 시나리오를 구조화한다.
+    """옵션 거래 집중 + (가능하면) OI 강지지/저항으로 개장 관찰 시나리오."""
+    levels = base.get("levels") or {}
+    st = ((base.get("expiry_metrics") or {}).get("this_week") or {}).get("straddle") or {}
 
-    예측이 아니라 관찰 포인트: 지지/저항 돌파 여부 + 갭 상태.
-    """
-    put_rows = base.get("top_put_volume") or []
-    call_rows = base.get("top_call_volume") or []
-    near = (base.get("expiry_metrics") or {}).get("this_week") or {}
-    st = near.get("straddle") or {}
+    def _pick(strong_key, near_key):
+        strong = levels.get(strong_key) or []
+        near = levels.get(near_key) or []
+        s = strong[0]["strike"] if strong else None
+        n = near[0]["strike"] if near else None
+        return s, n, (strong[0] if strong else None), (near[0] if near else None)
 
-    supports = sorted(
-        {float(r["strike"]) for r in put_rows if r.get("strike") is not None
-         and float(r["strike"]) <= spot * 1.02},
-        reverse=True,
-    )
-    resistances = sorted(
-        {float(r["strike"]) for r in call_rows if r.get("strike") is not None
-         and float(r["strike"]) >= spot * 0.98}
-    )
+    strong_sup, near_sup, strong_sup_meta, _ = _pick("strong_support", "near_support")
+    strong_res, near_res, strong_res_meta, _ = _pick("strong_resistance", "near_resistance")
 
-    nearest_support = supports[0] if supports else None
-    next_support = supports[1] if len(supports) > 1 else None
-    nearest_resist = resistances[0] if resistances else None
-    next_resist = resistances[1] if len(resistances) > 1 else None
+    primary_support = near_sup or strong_sup
+    primary_resist = near_res or strong_res
+    secondary_support = strong_sup if strong_sup and strong_sup != primary_support else None
+    secondary_resist = strong_res if strong_res and strong_res != primary_resist else None
 
     regular = (data or {}).get("regular_close")
     extended = (data or {}).get("extended_price")
@@ -428,54 +422,55 @@ def next_session_scenarios(
         )
 
     scenarios: list[dict] = []
-    if nearest_support is not None:
+    if primary_support is not None:
+        extra = (
+            f" 더 아래 강한 지지(풋 OI)는 ${secondary_support:g}."
+            if secondary_support
+            else ""
+        )
         scenarios.append(
             {
                 "name": "방어(반등 시도)",
-                "condition": f"개장 후 ${nearest_support:g} 지지가 지켜질 때",
-                "watch": (
-                    f"풋 거래가 몰린 ${nearest_support:g} 근처에서 매수 대기자가 받쳐주는지. "
-                    + (f"깨지면 다음 관심은 ${next_support:g}." if next_support else "")
-                ),
+                "condition": f"개장 후 ${primary_support:g} 지지가 지켜질 때",
+                "watch": f"이 가격 근처 매수 대기자가 받쳐주는지 확인.{extra}",
             }
         )
-    if nearest_support is not None:
         scenarios.append(
             {
                 "name": "추가 하락",
-                "condition": f"개장 후 ${nearest_support:g} 아래를 이탈할 때",
+                "condition": f"개장 후 ${primary_support:g} 아래를 이탈할 때",
                 "watch": (
-                    "어닝 미스 여파가 장중으로 이어지는 신호. "
-                    + (f"다음 풋 밀집 ${next_support:g}까지 내려갈 수 있음." if next_support else
-                       "하락 가속 여부 확인.")
+                    f"다음 관심은 강한 지지 ${secondary_support:g} (풋 OI 밀집)."
+                    if secondary_support
+                    else "하락 가속 여부 확인."
                 ),
             }
         )
-    if nearest_resist is not None:
+    if primary_resist is not None:
+        extra = (
+            f" 더 위 강한 저항(콜 OI)은 ${secondary_resist:g}."
+            if secondary_resist
+            else ""
+        )
         scenarios.append(
             {
                 "name": "반등 연장",
-                "condition": f"개장 후 ${nearest_resist:g} 저항을 돌파·유지할 때",
-                "watch": (
-                    f"콜 거래가 몰린 ${nearest_resist:g} 위로 안착하면 단기 숏커버/반등 가능. "
-                    + (f"다음 저항 ${next_resist:g}." if next_resist else "")
-                ),
+                "condition": f"개장 후 ${primary_resist:g} 저항을 돌파·유지할 때",
+                "watch": f"단기 숏커버/반등 가능.{extra}",
             }
         )
 
-    # 어닝 직후 특별 코멘트
     context = None
     if earnings and earnings.get("phase") == "직후":
         sur = earnings.get("surprise_pct")
         sur_s = f" (EPS {sur:+.1f}%)" if sur is not None else ""
         context = (
-            f"실적 발표 직후{sur_s}입니다. 옵션 시장이 이미 가격에 반영한 지지/저항을 "
-            "다음 개장 '관찰 체크리스트'로 쓰세요. 방향 예측이 아니라 돌파/이탈 확인용입니다."
+            f"실적 발표 직후{sur_s}입니다. 옵션이 가격에 반영한 지지/저항을 "
+            "개장 '관찰 체크리스트'로 쓰세요. 단정 예측이 아니라 돌파/이탈 확인용."
         )
     elif earnings and earnings.get("phase") == "임박":
         context = (
-            "실적 발표 임박입니다. 밴드가 넓어지고 콜·풋이 양쪽에 쌓이는 건 흔합니다. "
-            "발표 전엔 방향 단정 대신 변동성(범위)에 주목하세요."
+            "실적 발표 임박입니다. 방향 단정 대신 변동성(범위)과 지지/저항에 주목하세요."
         )
 
     if not scenarios and not gap_note:
@@ -485,19 +480,24 @@ def next_session_scenarios(
         "reference_spot": spot,
         "session": session,
         "gap_note": gap_note,
-        "nearest_support": nearest_support,
-        "nearest_resistance": nearest_resist,
+        "nearest_support": primary_support,
+        "nearest_resistance": primary_resist,
+        "strong_support": strong_sup,
+        "strong_resistance": strong_res,
+        "strong_support_meta": strong_sup_meta,
+        "strong_resistance_meta": strong_res_meta,
         "band": [st.get("lower"), st.get("upper")] if st else None,
         "band_pct": st.get("band_pct"),
         "context": context,
         "scenarios": scenarios[:3],
         "action_hint": (
-            f"개장 직후 첫 30분은 ${nearest_support:g} 지지 / ${nearest_resist:g} 저항 "
-            f"반응만 체크하세요."
-            if nearest_support is not None and nearest_resist is not None
+            f"개장 직후 첫 30분은 ${primary_support:g} 지지 / ${primary_resist:g} 저항 "
+            f"반응을 체크하세요."
+            if primary_support is not None and primary_resist is not None
             else "개장 직후 지지·저항 반응을 먼저 확인하세요."
         ),
     }
+
 
 
 # ------------------------------------------------------------------ #

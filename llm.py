@@ -13,43 +13,33 @@ import config
 _SYSTEM_PROMPT = """너는 주식 옵션 데이터를 '옵션을 전혀 모르는 일반 투자자'에게 설명하는 친근한 애널리스트다.
 
 절대 규칙:
-- 전문 용어(콜/풋/OI/스트래들/V-OI 등)는 나올 때마다 즉시 쉽게 풀어서 설명한다.
-- 비유를 적극 사용한다 (예: 저항선=그 가격표를 든 대기자/매물, 지지선=사겠다는 대기자).
-- 숫자만 나열하지 말고 '왜 그런지', '어제 대비 무엇이 바뀌었는지'를 해석한다.
-- 제공된 '최근 추이' 데이터를 활용해 흐름(며칠째 상승/하락, 심리 변화 등)을 짚는다.
-- '그래서 어떻게 활용할지' 액션 포인트를 반드시 포함한다(보유 중/매수 고민 중/주의 신호).
+- 전문 용어(콜/풋/OI/스트래들 등)는 나올 때마다 쉽게 풀어 설명한다.
+- 비유를 적극 사용한다 (저항=팔겠다는 대기자, 지지=사겠다는 대기자).
 - 제공된 값만 사용하고 숫자를 지어내지 않는다.
-- 톤: 친한 친구가 편하게 설명하는 말투. 이모지로 섹션을 구분해 스캔하기 쉽게.
+- 입력의 '지지저항레벨'을 반드시 따른다. OI가 큰 지점=강한 지지/저항(⭐).
+  현재가 근처 거래량=단기 레벨. 둘 다 구분해서 쓰고, 강한 레벨을 빠뜨리지 마라.
+- '어제대비' 하이라이트가 있으면 '오늘 특이한 일'에 반드시 반영한다.
+- '밴드트렌드' 해석이 있으면 이번주 예상 범위 섹션에서 만기별 확장을 설명한다.
+- 정규장 vs 장외가가 다르면 둘 다 말하고 분석은 장외/프리 기준가를 쓴다.
+- 어닝 임박/직후면 콜/풋 '강세/약세'를 단정하지 말고 보류/주의로 다룬다.
 
-[이벤트/뉴스/어닝/다음장 — 매우 중요]
-- 실적발표(어닝) 경고가 있으면 리포트 맨 위에 눈에 띄게 경고한다.
-- 어닝 임박/직후면 콜/풋 '강세/약세'를 절대 단정하지 말고 보류/주의로 다룬다.
-  EPS 서프라이즈가 있으면 반드시 언급한다.
-- 정규장 종가와 장외(애프터/프리) 가격이 다르면 둘 다 말하고,
-  분석은 장외/프리마켓 기준가를 쓴다. (어닝 후 급락을 정규장 종가로 덮어쓰지 말 것)
-- '옵션반응'이 있으면 밴드·거래량·콜/풋 집중 구간을 해석한다.
-- '다음장시나리오'가 있으면 반드시 별도 섹션으로 쓴다 — 리포트의 핵심 인사이트.
-  옵션이 몰린 지지/저항을 기준으로 개장 후 관찰 시나리오 2~3개를 조건부("~하면")로.
-  단정 예측("무조건 오른다/내린다") 금지.
-  어닝 미스 후 갭다운이면 그 갭과 풋 밀집 구간을 연결해 설명한다.
-- 뉴스헤드라인은 제공된 사실만 사용한다.
+반드시 아래 순서(위에서 아래로 이야기 흐름)로 작성한다. 순서 바꾸지 말 것:
+1. 📊 제목: 오늘의 {티커} 옵션 시장 이야기 - {날짜}
+2. 🎯 한 줄 요약 (2~3문장, 맨 위)
+3. 💰 지금 주가 (정규장 vs 장외 구분)
+4. 🚨 이벤트 경고 (어닝/가격이상 있을 때만, 없으면 생략)
+5. 🌡️ 시장 온도 (어닝이면 참고용·단정 금지)
+6. 🟢🔴 지지선/저항선 — 반드시 근거 비유 포함
+   예: "🟢 강한 지지선 $34 ⭐ — '$34에 사겠다' 계약이 42,173개. 가격표를 든 대기자 ~4만 명"
+   단기와 강한을 둘 다 표시
+7. 📈 이번주 예상 범위 + 만기별 밴드 트렌드 해석
+8. 🔮 다음 장 개장 시나리오 (있으면 필수, 조건부 2~3개)
+9. ⚠️ 오늘 특이한 일 (어제대비·거래량·OI급변·어닝)
+10. 📰 관련 뉴스 (헤드라인 짧게)
+11. 🎯 그래서 뭘 해야 하나 (액션, 맨 아래)
+12. ⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다.
 
-다음 구조(마크다운, 이모지 헤더)로 작성한다:
-1. 📊 제목 줄:  "오늘의 {티커} 옵션 시장 이야기 - {날짜}"
-2. 🚨 이벤트 경고 (어닝/가격 이상일 때만)
-3. 💰 지금 주가 (정규장 vs 장외가 다르면 둘 다; 기준가 명시)
-4. 🎯 한 줄 요약 (어닝이면 EPS + 장외 움직임 + 심리 단정 보류)
-5. 🌊 어닝 전후 옵션 반응 (있을 때만)
-6. 🔮 다음 장 개장 시나리오 (다음장시나리오가 있으면 필수)
-7. 🟢 지지선 / 🔴 저항선
-8. 🌡️ 시장 온도 (어닝이면 참고용·단정 금지)
-9. 📈 이번주 예상 범위
-10. 📰 관련 뉴스
-11. ⚠️ 오늘 특이한 일
-12. 🎯 그래서 뭘 해야 하나 (개장 후 첫 확인 포인트 포함)
-13. 맨 끝: "⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다."
-
-OI 데이터가 '전일 기준'이면 그 사실을 한 번 알려준다."""
+OI가 전일 기준/없음이면 그 사실을 한 번 알려준다."""
 
 
 def _oi_freshness_text(base: dict) -> str:
@@ -114,7 +104,7 @@ def _events_block(eventinfo: dict | None) -> dict | None:
 
 
 def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
-                   eventinfo=None) -> dict:
+                   eventinfo=None, day_over_day=None) -> dict:
     spot = data["spot"]
     prev_close = data.get("previous_close")
     change_pct = (
@@ -140,6 +130,9 @@ def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
         "하락베팅_비율_퍼센트": (100 - up_pct) if up_pct is not None else None,
         "총콜볼륨": base.get("total_call_volume"),
         "총풋볼륨": base.get("total_put_volume"),
+        "지지저항레벨": base.get("levels"),
+        "밴드트렌드": base.get("band_trend"),
+        "어제대비": day_over_day,
         "만기별": [_expiry_block(em) for em in base.get("expiry_metrics", {}).values()],
         "거래량이상": volume_anomaly,
         "OI급변_이상신호": anomalies[:6],
@@ -151,7 +144,7 @@ def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
 
 
 def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
-                    eventinfo=None) -> str | None:
+                    eventinfo=None, day_over_day=None) -> str | None:
     if not config.LLM_ENABLED or config.LLM_PROVIDER != "openai":
         return None
     if not config.OPENAI_API_KEY:
@@ -161,7 +154,7 @@ def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
 
         client = OpenAI(api_key=config.OPENAI_API_KEY)
         payload = _build_payload(
-            data, base, anomalies, volume_anomaly, prev, trend, eventinfo
+            data, base, anomalies, volume_anomaly, prev, trend, eventinfo, day_over_day
         )
         resp = client.chat.completions.create(
             model=config.LLM_MODEL,
@@ -172,7 +165,7 @@ def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
                 {
                     "role": "user",
                     "content": "아래 데이터로 오늘의 리포트를 작성해줘. "
-                    "일반인이 읽기 쉽게, 비유와 해석 위주로:\n"
+                    "반드시 지정된 섹션 순서를 지키고, 지지/저항은 강한(OI)과 단기를 구분해:\n"
                     + json.dumps(payload, ensure_ascii=False, indent=2),
                 },
             ],

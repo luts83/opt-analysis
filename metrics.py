@@ -394,3 +394,167 @@ def build_trend(history: list[dict], today: dict) -> list[dict]:
     rows = [_row(h) for h in sorted(history, key=lambda s: s.get("date", ""))]
     rows.append(_row(today))
     return rows[-6:]  # 최근 6일
+
+
+# ------------------------------------------------------------------ #
+# 지지/저항 레벨 (강한 OI vs 단기 거래량)
+# ------------------------------------------------------------------ #
+
+def build_levels(base: dict, spot: float) -> dict:
+    """강한 지지/저항(OI 밀집) + 단기 지지/저항(현재가 근처 거래량)."""
+    near = (base.get("expiry_metrics") or {}).get("this_week") or {}
+    call_oi = near.get("call_oi_clusters") or []
+    put_oi = near.get("put_oi_clusters") or []
+
+    strong_resist = [
+        {"strike": c["strike"], "oi": c["oi"], "kind": "강한저항", "basis": "콜 OI 밀집"}
+        for c in call_oi[:2]
+    ]
+    strong_support = [
+        {"strike": p["strike"], "oi": p["oi"], "kind": "강한지지", "basis": "풋 OI 밀집"}
+        for p in put_oi[:2]
+    ]
+
+    # 단기: 현재가 근처(±8%) 거래량 상위
+    lo, hi = spot * 0.92, spot * 1.08
+    near_puts = [
+        r for r in (base.get("top_put_volume") or [])
+        if lo <= r["strike"] <= spot * 1.01
+    ]
+    near_calls = [
+        r for r in (base.get("top_call_volume") or [])
+        if spot * 0.99 <= r["strike"] <= hi
+    ]
+    near_support = (
+        [{"strike": near_puts[0]["strike"], "volume": near_puts[0]["volume"],
+          "kind": "단기지지", "basis": "현재가 근처 풋 거래 집중"}]
+        if near_puts else []
+    )
+    near_resist = (
+        [{"strike": near_calls[0]["strike"], "volume": near_calls[0]["volume"],
+          "kind": "단기저항", "basis": "현재가 근처 콜 거래 집중"}]
+        if near_calls else []
+    )
+
+    return {
+        "strong_support": strong_support,
+        "strong_resistance": strong_resist,
+        "near_support": near_support,
+        "near_resistance": near_resist,
+        "has_oi_levels": bool(strong_support or strong_resist),
+    }
+
+
+# ------------------------------------------------------------------ #
+# 만기별 밴드 트렌드
+# ------------------------------------------------------------------ #
+
+def build_band_trend(base: dict) -> dict | None:
+    """이번주/다음주/월간 상·하단 확장을 한 줄로 해석."""
+    em = base.get("expiry_metrics") or {}
+    rows = []
+    for role, label in (("this_week", "이번주"), ("next_week", "다음주"), ("monthly", "월간")):
+        st = (em.get(role) or {}).get("straddle")
+        if not st:
+            continue
+        rows.append(
+            {
+                "role": role,
+                "label": label,
+                "date": (em.get(role) or {}).get("date"),
+                "lower": st.get("lower"),
+                "upper": st.get("upper"),
+                "band_pct": st.get("band_pct"),
+            }
+        )
+    if len(rows) < 2:
+        return None
+
+    first, last = rows[0], rows[-1]
+    upper_expand = (
+        last["upper"] is not None and first["upper"] is not None
+        and last["upper"] > first["upper"]
+    )
+    lower_expand = (
+        last["lower"] is not None and first["lower"] is not None
+        and last["lower"] < first["lower"]
+    )
+    if upper_expand and lower_expand:
+        interpretation = (
+            f"시간이 지날수록 예상 범위가 양쪽으로 넓어져요. "
+            f"단기 상단 ${first['upper']:g} → 장기 상단 ${last['upper']:g}, "
+            f"하단은 ${first['lower']:g} → ${last['lower']:g}."
+        )
+    elif upper_expand:
+        interpretation = (
+            f"만기가 멀수록 상단이 더 열려 있어요 "
+            f"(${first['upper']:g} → ${last['upper']:g}). 중기 상방 시나리오가 더 큼."
+        )
+    elif lower_expand:
+        interpretation = (
+            f"만기가 멀수록 하단이 더 열려 있어요 "
+            f"(${first['lower']:g} → ${last['lower']:g}). 중기 하방 리스크 구간이 넓음."
+        )
+    else:
+        interpretation = "만기별로 상·하단이 크게 벌어지지 않아, 단기 컨센서스가 비교적 좁아요."
+
+    return {"rows": rows, "interpretation": interpretation}
+
+
+# ------------------------------------------------------------------ #
+# 어제 대비 변화 요약
+# ------------------------------------------------------------------ #
+
+def build_day_over_day(data: dict, base: dict, prev: dict | None) -> dict | None:
+    """어제 스냅샷과 비교(주가·거래량·심리·밴드). OI 급변은 별도 anomalies."""
+    if not prev:
+        return {
+            "available": False,
+            "note": "비교할 어제 스냅샷이 없어요. 내일치 쌓이면 변화 감지가 시작됩니다.",
+        }
+    prev_m = prev.get("metrics") or {}
+    spot = data.get("spot")
+    prev_spot = prev.get("spot")
+    spot_chg = None
+    if spot is not None and prev_spot:
+        spot_chg = round((spot - prev_spot) / prev_spot * 100, 2)
+
+    vol_t = base.get("total_volume") or 0
+    vol_p = prev_m.get("total_volume") or 0
+    vol_mult = round(vol_t / vol_p, 2) if vol_p else None
+
+    st_t = ((base.get("expiry_metrics") or {}).get("this_week") or {}).get("straddle") or {}
+    st_p = ((prev_m.get("expiry_metrics") or {}).get("this_week") or {}).get("straddle") or {}
+    band_delta = None
+    if st_t.get("band_pct") is not None and st_p.get("band_pct") is not None:
+        band_delta = round(st_t["band_pct"] - st_p["band_pct"], 2)
+
+    highlights: list[str] = []
+    if spot_chg is not None:
+        highlights.append(f"주가 {prev_spot} → {spot} ({spot_chg:+.1f}%)")
+    if vol_mult is not None:
+        if vol_mult >= 1.5:
+            highlights.append(f"옵션 거래량 급증 (어제 대비 {vol_mult}배: {vol_p:,} → {vol_t:,})")
+        elif vol_mult <= 0.7:
+            highlights.append(f"옵션 거래량 감소 (어제 대비 {vol_mult}배: {vol_p:,} → {vol_t:,})")
+        else:
+            highlights.append(f"옵션 거래량 비슷 (어제 대비 {vol_mult}배)")
+    senti_t, senti_p = base.get("sentiment"), prev_m.get("sentiment")
+    if senti_t and senti_p:
+        if senti_t != senti_p:
+            highlights.append(f"심리 전환: {senti_p} → {senti_t}")
+        else:
+            highlights.append(f"심리 유지: {senti_t}")
+    if band_delta is not None:
+        highlights.append(f"예상 변동폭(밴드) {st_p.get('band_pct')}% → {st_t.get('band_pct')}% ({band_delta:+}%p)")
+
+    return {
+        "available": True,
+        "prev_date": prev.get("date"),
+        "spot_change_pct": spot_chg,
+        "volume_mult": vol_mult,
+        "sentiment_today": senti_t,
+        "sentiment_prev": senti_p,
+        "band_delta_pp": band_delta,
+        "highlights": highlights,
+    }

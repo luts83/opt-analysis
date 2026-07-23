@@ -99,6 +99,32 @@ def build_report(data: dict, base: dict, anomalies: list[dict],
         if st:
             L.append(f"     - {label}({em['date']}): ${st['lower']}~${st['upper']} "
                      f"(±{st['band_pct']}%)")
+    bt = base.get("band_trend") or {}
+    if bt.get("interpretation"):
+        L.append(f"   · 밴드 트렌드: {bt['interpretation']}")
+
+    # 지지/저항 레벨
+    levels = base.get("levels") or {}
+    if levels.get("has_oi_levels") or levels.get("near_support") or levels.get("near_resistance"):
+        L.append("   · 지지/저항:")
+        for key, tag in (
+            ("strong_support", "강한지지⭐"),
+            ("near_support", "단기지지"),
+            ("near_resistance", "단기저항"),
+            ("strong_resistance", "강한저항⭐"),
+        ):
+            for item in levels.get(key) or []:
+                extra = f" OI {item['oi']:,}" if item.get("oi") else f" vol {item.get('volume', 0):,}"
+                L.append(f"     - {tag} ${item['strike']:g} ({extra.strip()})")
+
+    # 어제 대비
+    dod = data.get("day_over_day") or {}
+    if dod.get("highlights"):
+        L.append("   · 어제 대비:")
+        for h in dod["highlights"]:
+            L.append(f"     - {h}")
+    elif dod.get("note"):
+        L.append(f"   · 어제 대비: {dod['note']}")
 
     # V/OI 상위
     L.append("   · V/OI 상위:")
