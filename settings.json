@@ -1,0 +1,25 @@
+{
+  "tickers": ["IREN"],
+  "expiries": ["this_week", "next_week", "monthly"],
+  "anomaly_thresholds": {
+    "oi_surge_pct": 100,
+    "oi_drop_pct": -80,
+    "min_volume": 500,
+    "volume_anomaly_mult": 3.0
+  },
+  "voi_top_n": 5,
+  "voi_min_oi": 50,
+  "top_volume_n": 5,
+  "oi_cluster_top_n": 3,
+  "oi_alert_min_oi": 100,
+  "far_otm_call_mult": 1.4,
+  "far_otm_min_oi": 5000,
+  "oi_stale_zero_fraction": 0.9,
+  "llm": {
+    "enabled": true,
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "max_output_tokens": 600,
+    "temperature": 0.3
+  }
+}

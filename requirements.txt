@@ -1,0 +1,6 @@
+# 옵션 분석 자동화 - Python 의존성
+# CI/재현성을 위해 버전을 고정한다.
+yfinance==0.2.65
+pandas>=2.0,<3.0
+openai>=1.40
+python-dotenv>=1.0
