@@ -18,5 +18,5 @@ ENV PYTHONUNBUFFERED=1 \
 
 RUN mkdir -p /data/snapshots
 
-# cron 서비스: 작업 후 반드시 종료되어야 다음 스케줄이 실행됨
-CMD ["python", "main.py"]
+# cron 서비스가 아니라 상시 봇(+내장 스케줄)
+CMD ["python", "bot.py"]

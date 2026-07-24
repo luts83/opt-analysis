@@ -70,84 +70,38 @@ python weekly.py --no-email --no-save # 미리보기
 
 ## 배포 (Railway — 권장)
 
-GitHub Actions `schedule` 이 이 레포에서 동작하지 않아, **Railway Cron** 으로 자동 발송한다.
+**서비스는 하나만** 있으면 됩니다. (`python bot.py` 상시 실행)
 
-### 1) Railway 프로젝트 만들기
+- `/report` 수동 요청
+- 화~토 아침 자동 발송 (봇 안 스케줄, UTC 05:07 ≈ 영국 여름 06:07)
 
-1. https://railway.com 에서 New Project → **Deploy from GitHub repo** → `opt-analysis`
-2. 서비스 이름 예: `opt-daily`
-3. **Variables** 에 등록:
+### 설정
+
+1. https://railway.com → Deploy from GitHub → `opt-analysis`
+2. **Start Command**: `python bot.py`
+3. **Cron Schedule: 비움** (예전에 cron 걸었으면 삭제)
+4. **Variables**:
    - `OPENAI_API_KEY`
-   - `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` (아래 텔레그램 설정)
+   - `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID`
    - `SNAPSHOTS_DIR=/data/snapshots`
-   - (선택) `EMAIL_*` — Railway Hobby 는 SMTP 가 막혀 메일 실패함. 로컬/Actions 용
-4. **Settings → Volumes**: Mount path `/data` (스냅샷 유지용 — 없으면 실행마다 OI 이력이 사라짐)
-5. **Settings → Cron Schedule**: `7 5 * * 2-6`  
-   (= 영국 여름 화~토 06:07 / UTC 05:07)
-6. **Settings → Custom Start Command**: `python main.py`  
-   (또는 `railway.toml` 의 값 사용)
-7. Deploy 후 **Manual Deploy** 한 번 눌러 텔레그램 수신 테스트
-
-### 텔레그램 봇 설정
-
-1. Telegram 앱에서 `@BotFather` → `/newbot` → 봇 이름/유저네임 → **토큰** 복사  
-2. 만든 봇 채팅을 열고 **아무 메시지** 한 번 전송  
-3. 브라우저에서  
-   `https://api.telegram.org/bot<TOKEN>/getUpdates`  
-   → `chat":{"id": 숫자}` 가 **CHAT_ID**  
-4. Railway Variables:
-   - `TELEGRAM_BOT_TOKEN=<토큰>`
-   - `TELEGRAM_CHAT_ID=<숫자>`
-
-로컬 테스트: `python main.py --no-email` (또는 `.env` 에 텔레그램 키 넣고 `python main.py`)
-
-### 텔레그램에서 수동으로 리포트 받기 (`/report`)
-
-cron 과 **별도 서비스**를 하나 더 만듭니다 (`opt-bot`):
-
-1. 같은 GitHub 레포로 New Service 추가
-2. **Start Command**: `python bot.py` (Cron Schedule 비움 — 상시 실행)
-3. Variables: daily 와 동일 (`TELEGRAM_*`, `OPENAI_API_KEY`, `SNAPSHOTS_DIR`)
-4. Volume `/data` 도 daily 와 같게 연결(가능하면)
-5. Deploy 후 봇이 `✅ 리포트 봇 준비됨` 메시지를 보내면 준비 완료
-
-채팅 명령:
+5. **Volume** mount `/data`
+6. Deploy 후 텔레그램에 `✅ 리포트 봇 준비됨` 이 오면 성공  
+   → 그다음 `/report` 또는 `/help` 테스트
 
 | 명령 | 동작 |
 |---|---|
-| `/report` | 전체 종목 리포트 |
+| `/report` | 전체 종목 |
 | `/report IREN` | 특정 종목만 |
 | `/help` | 안내 |
 
-등록된 `TELEGRAM_CHAT_ID` 채팅에서만 동작합니다.
+`TELEGRAM_CHAT_ID` 채팅에서만 동작합니다.
 
 로컬: `python bot.py`
 
-### 2) 주간 리포트 서비스 (선택)
+### 주간 리포트 (선택)
 
-같은 레포로 서비스 하나 더 추가 (`opt-weekly`):
-
-- Start Command: `python weekly.py`
-- Cron: `7 5 * * 6` (토 아침)
-- Variables / Volume (`/data`) 을 daily 와 **동일하게** 맞춤  
-  (볼륨을 서비스 간에 공유하려면 Railway 대시보드에서 같은 볼륨을 연결)
-
-참고 파일: `Dockerfile`, `railway.toml`, `railway.weekly.toml`, `railway.bot.toml`
-
-### 3) 로컬에서 Railway CLI
-
-```bash
-railway login
-railway link          # 프로젝트 선택
-railway variables set OPENAI_API_KEY=... EMAIL_SENDER=... # 등
-railway up            # 배포
-railway logs
-```
-
-## 배포 (GitHub Actions — 보조)
-
-수동 Run 은 되지만 **내장 schedule 이 등록되지 않는 경우가 있음**.
-자동화는 Railway 를 쓰고, Actions 는 백업/수동용으로 두면 된다.
+나중에 필요하면 서비스/ cron 을 추가하거나, 봇에 `/weekly` 를 붙이면 됩니다.
+참고: `railway.weekly.toml`, `railway.bot.toml`(구버전 분리 배포용)
 
 ## 단위 테스트
 

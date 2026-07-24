@@ -1,14 +1,13 @@
-# Railway — 일일 리포트 cron 서비스용 기본 설정
-# 대시보드에서 Cron Schedule / Volume / Variables 를 최종 확인하세요.
-# https://docs.railway.com/cron-jobs
+# Railway — 단일 상시 서비스 (텔레그램 봇 + 내장 스케줄)
+# 대시보드에서 Cron Schedule 은 비워 두세요.
+# Start Command: python bot.py
 
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-# 영국 여름 06:07 ≈ UTC 05:07 / 겨울 06:07 ≈ UTC 06:07
-# (UTC 고정. 서머타임 바뀌면 여기 분·시를 조정)
-startCommand = "python main.py"
-cronSchedule = "7 5 * * 2-6"
-restartPolicyType = "NEVER"
+startCommand = "python bot.py"
+# Cron 사용 안 함 — bot.py 스케줄러가 화~토 05:07 UTC 에 발송
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
