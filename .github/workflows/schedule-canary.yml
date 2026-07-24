@@ -1,0 +1,28 @@
+name: Schedule Canary
+
+# schedule 이 이 private 레포에서 도는지 확인용(가벼운 echo만).
+# 동작하면 Actions 에 event=schedule 로 찍힘. 안 찍히면 GitHub cron 이 막힌 것.
+on:
+  schedule:
+    - cron: "55 6 * * *"
+      timezone: Europe/London
+    - cron: "0 7 * * *"
+      timezone: Europe/London
+    - cron: "5 7 * * *"
+      timezone: Europe/London
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prove schedule fired
+        run: |
+          echo "event_name=${{ github.event_name }}"
+          echo "utc_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "london_now=$(TZ=Europe/London date +%Y-%m-%dT%H:%M:%S%z)"
+          echo "ref=${{ github.ref }}"
+          echo "sha=${{ github.sha }}"

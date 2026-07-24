@@ -1,15 +1,18 @@
 name: Daily Options Report
 
-# 실행 시각 (테스트):
-#  - 영국 아침 06:40 / 06:43 / 06:46 (BST) = 05:40 / 05:43 / 05:46 UTC
-#  - 화~토. 테스트 후 원하면 시각으로 되돌리면 됨.
-#  - 수동: Actions 탭 → Run workflow
+# 영국 아침 자동 리포트
+# 1) schedule (GitHub cron) — best-effort, 가끔 스킵됨
+# 2) workflow_dispatch — 수동 / 외부 cron(cron-job.org 등) 호출용 ★권장
+# 3) repository_dispatch — 외부 트리거 대안
 on:
   schedule:
-    - cron: "40 5 * * 2-6"
-    - cron: "43 5 * * 2-6"
-    - cron: "46 5 * * 2-6"
+    - cron: "7 6 * * 2-6"
+      timezone: Europe/London
+    - cron: "37 6 * * 2-6"
+      timezone: Europe/London
   workflow_dispatch:
+  repository_dispatch:
+    types: [daily-report]
 
 concurrency:
   group: daily-options-report
@@ -25,15 +28,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Skip if already completed today (UTC)
+      - name: Skip if already completed today (London date)
         id: gate
         run: |
-          TODAY=$(date -u +%Y-%m-%d)
+          TODAY=$(TZ=Europe/London date +%Y-%m-%d)
           MARKER="snapshots/.daily_sent_${TODAY}"
           echo "event=${{ github.event_name }}"
-          echo "today_utc=$TODAY"
+          echo "today_london=$TODAY"
+          # 외부/수동 재실행은 허용. schedule 중복만 스킵.
           if [ -f "$MARKER" ] && [ "${{ github.event_name }}" = "schedule" ]; then
-            echo "이미 오늘 자동 리포트가 완료됨 → 스킵"
+            echo "이미 오늘 자동 리포트 완료 → schedule 스킵"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -73,7 +77,7 @@ jobs:
       - name: Commit snapshot + daily marker
         if: steps.gate.outputs.skip != 'true'
         run: |
-          TODAY=$(date -u +%Y-%m-%d)
+          TODAY=$(TZ=Europe/London date +%Y-%m-%d)
           mkdir -p snapshots
           touch "snapshots/.daily_sent_${TODAY}"
           find snapshots -name '.daily_sent_*' -mtime +7 -delete 2>/dev/null || true

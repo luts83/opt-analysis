@@ -1,15 +1,16 @@
 name: Weekly Validation Report
 
-# 실행 시각:
-#  - 1차: 토 05:07 UTC ≈ 06:07 BST
-#  - 2차(백업): 토 05:37 UTC ≈ 06:37 BST
+# 영국 토요일 아침 주간 검증
 on:
   schedule:
-    - cron: "7 5 * * 6"
-    - cron: "37 5 * * 6"
+    - cron: "7 6 * * 6"
+      timezone: Europe/London
+    - cron: "37 6 * * 6"
+      timezone: Europe/London
   workflow_dispatch:
+  repository_dispatch:
+    types: [weekly-report]
 
-# 주간 스냅샷을 repo 에 커밋해야 하므로 쓰기 권한 필요
 permissions:
   contents: write
 
@@ -32,7 +33,6 @@ jobs:
 
       - name: Run weekly validation
         env:
-          # GitHub → Settings → Secrets and variables → Actions 에 등록
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
@@ -56,6 +56,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "커밋할 주간 스냅샷 변경 없음"
           else
-            git commit -m "chore: 주간 검증 스냅샷 $(date -u +%Y-%m-%d)"
+            git commit -m "chore: 주간 검증 스냅샷 $(TZ=Europe/London date +%Y-%m-%d)"
             git push
           fi

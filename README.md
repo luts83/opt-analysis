@@ -80,13 +80,35 @@ python weekly.py --no-email --no-save # 미리보기
    - `EMAIL_APP_PASSWORD` (Gmail 앱 비밀번호)
    - `EMAIL_RECIPIENTS` (수신자, 쉼표 구분)
 3. Actions 탭 → "Daily Options Report" → Run workflow 로 수동 테스트
-4. 이후 cron(기본 05:00 UTC = 영국 아침 6시(BST), 화~토)에 맞춰 자동 실행 + 이메일 발송
-   → 전날 미국장(월~금 세션)을 다음날 영국 아침에 정리해 발송(다음 개장 전 준비용)
+4. 이후 스케줄(영국 `Europe/London` 화~토 06:07 / 백업 06:37)로 자동 실행 + 이메일 발송
+5. **중요:** GitHub 내장 `schedule` 은 스킵되는 경우가 있어, 안정적으로 쓰려면 아래
+   **외부 cron → workflow_dispatch** 를 권장한다.
 
-주간 검증은 `.github/workflows/weekly-report.yml` 가 **토요일 05:00 UTC(영국 토 아침 6시 BST)**
-자동 실행 → 그 주 월~금 예측 채점 이메일 발송 + 주간 스냅샷 커밋. (같은 Secrets 사용)
+### 안정적인 자동 발송 (권장: cron-job.org)
 
-로컬에서 이메일까지 테스트: `python main.py`  (발송 없이: `python main.py --no-email`)
+GitHub Actions 탭에 `schedule` 실행이 안 뜨면(수동만 성공), 외부에서 깨우면 된다.
+
+1. GitHub → Settings → Developer settings → **Fine-grained personal access token** 생성
+   - Repository access: `opt-analysis` only
+   - Permissions: **Actions = Read and write**, **Contents = Read**
+2. https://cron-job.org 가입 후 새 작업 생성:
+   - URL: `https://api.github.com/repos/luts83/opt-analysis/actions/workflows/daily-report.yml/dispatches`
+   - Method: **POST**
+   - Schedule: 매일(또는 화~토) **06:07 Europe/London**
+   - Headers:
+     - `Accept: application/vnd.github+json`
+     - `Authorization: Bearer <방금_만든_PAT>`
+     - `X-GitHub-Api-Version: 2022-11-28`
+   - Body (JSON): `{"ref":"main"}`
+3. 로컬에서 바로 테스트:
+   ```bash
+   export GH_TOKEN=github_pat_...
+   chmod +x scripts/trigger_daily.sh
+   ./scripts/trigger_daily.sh
+   ```
+
+주간 검증은 `.github/workflows/weekly-report.yml` (토 아침) + 같은 Secrets.
+로컬 테스트: `python main.py`  (발송 없이: `python main.py --no-email`)
 
 ## 단위 테스트
 
