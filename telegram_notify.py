@@ -68,7 +68,14 @@ def _post_send_message(text: str) -> None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        import certifi
+        import ssl
+
+        context = ssl.create_default_context(cafile=certifi.where())
+    except Exception:  # certifi 없으면 시스템 기본
+        context = None
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=context) as resp:
             body = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         detail = e.read().decode("utf-8", errors="replace")
