@@ -1,0 +1,12 @@
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.env
+.DS_Store
+report_output.txt
+weekly_output.txt
+.github
+*.md
+scripts

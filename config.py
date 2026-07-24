@@ -34,8 +34,8 @@ OPTION_FIELDS = [
     "openInterest",
 ]
 
-# 스냅샷 저장 폴더
-SNAPSHOTS_DIR = "snapshots"
+# 스냅샷 저장 폴더 (Railway Volume 등에서는 SNAPSHOTS_DIR=/data/snapshots)
+SNAPSHOTS_DIR = os.getenv("SNAPSHOTS_DIR", "snapshots")
 
 # ---- 기본값 (settings.json 이 없을 때) ----
 _DEFAULTS = {

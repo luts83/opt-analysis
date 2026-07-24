@@ -68,47 +68,52 @@ python weekly.py --no-email --no-save # 미리보기
 
 주간 스냅샷은 `snapshots/<TICKER>/weekly/<주말금요일>.json` 에 쌓인다.
 
-## 배포 (GitHub Actions)
+## 배포 (Railway — 권장)
 
-`.github/workflows/daily-report.yml` 가 평일마다 자동 실행되어 리포트를 만들고
-오늘 스냅샷을 repo 에 커밋한다.
+GitHub Actions `schedule` 이 이 레포에서 동작하지 않아, **Railway Cron** 으로 자동 발송한다.
 
-1. GitHub 에 (private) repo 생성 후 이 코드를 push
-2. repo → Settings → Secrets and variables → Actions 에 시크릿 등록:
+### 1) Railway 프로젝트 만들기
+
+1. https://railway.com 에서 New Project → **Deploy from GitHub repo** → `opt-analysis`
+2. 서비스 이름 예: `opt-daily`
+3. **Variables** 에 등록:
    - `OPENAI_API_KEY`
-   - `EMAIL_SENDER` (발신 Gmail)
-   - `EMAIL_APP_PASSWORD` (Gmail 앱 비밀번호)
-   - `EMAIL_RECIPIENTS` (수신자, 쉼표 구분)
-3. Actions 탭 → "Daily Options Report" → Run workflow 로 수동 테스트
-4. 이후 스케줄(영국 `Europe/London` 화~토 06:07 / 백업 06:37)로 자동 실행 + 이메일 발송
-5. **중요:** GitHub 내장 `schedule` 은 스킵되는 경우가 있어, 안정적으로 쓰려면 아래
-   **외부 cron → workflow_dispatch** 를 권장한다.
+   - `EMAIL_SENDER`
+   - `EMAIL_APP_PASSWORD`
+   - `EMAIL_RECIPIENTS`
+   - `SNAPSHOTS_DIR=/data/snapshots`
+4. **Settings → Volumes**: Mount path `/data` (스냅샷 유지용 — 없으면 실행마다 OI 이력이 사라짐)
+5. **Settings → Cron Schedule**: `7 5 * * 2-6`  
+   (= 영국 여름 화~토 06:07 / UTC 05:07)
+6. **Settings → Custom Start Command**: `python main.py`  
+   (또는 `railway.toml` 의 값 사용)
+7. Deploy 후 **Manual Deploy** 한 번 눌러 메일 테스트
 
-### 안정적인 자동 발송 (권장: cron-job.org)
+### 2) 주간 리포트 서비스 (선택)
 
-GitHub Actions 탭에 `schedule` 실행이 안 뜨면(수동만 성공), 외부에서 깨우면 된다.
+같은 레포로 서비스 하나 더 추가 (`opt-weekly`):
 
-1. GitHub → Settings → Developer settings → **Fine-grained personal access token** 생성
-   - Repository access: `opt-analysis` only
-   - Permissions: **Actions = Read and write**, **Contents = Read**
-2. https://cron-job.org 가입 후 새 작업 생성:
-   - URL: `https://api.github.com/repos/luts83/opt-analysis/actions/workflows/daily-report.yml/dispatches`
-   - Method: **POST**
-   - Schedule: 매일(또는 화~토) **06:07 Europe/London**
-   - Headers:
-     - `Accept: application/vnd.github+json`
-     - `Authorization: Bearer <방금_만든_PAT>`
-     - `X-GitHub-Api-Version: 2022-11-28`
-   - Body (JSON): `{"ref":"main"}`
-3. 로컬에서 바로 테스트:
-   ```bash
-   export GH_TOKEN=github_pat_...
-   chmod +x scripts/trigger_daily.sh
-   ./scripts/trigger_daily.sh
-   ```
+- Start Command: `python weekly.py`
+- Cron: `7 5 * * 6` (토 아침)
+- Variables / Volume (`/data`) 을 daily 와 **동일하게** 맞춤  
+  (볼륨을 서비스 간에 공유하려면 Railway 대시보드에서 같은 볼륨을 연결)
 
-주간 검증은 `.github/workflows/weekly-report.yml` (토 아침) + 같은 Secrets.
-로컬 테스트: `python main.py`  (발송 없이: `python main.py --no-email`)
+참고 파일: `Dockerfile`, `railway.toml`, `railway.weekly.toml`
+
+### 3) 로컬에서 Railway CLI
+
+```bash
+railway login
+railway link          # 프로젝트 선택
+railway variables set OPENAI_API_KEY=... EMAIL_SENDER=... # 등
+railway up            # 배포
+railway logs
+```
+
+## 배포 (GitHub Actions — 보조)
+
+수동 Run 은 되지만 **내장 schedule 이 등록되지 않는 경우가 있음**.
+자동화는 Railway 를 쓰고, Actions 는 백업/수동용으로 두면 된다.
 
 ## 단위 테스트
 

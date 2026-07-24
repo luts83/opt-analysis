@@ -1,0 +1,12 @@
+# Railway — 주간 검증용 (같은 레포로 서비스 하나 더 만들 때)
+# 서비스 Settings → Custom Start Command / Cron Schedule 을 아래로 맞추거나
+# 이 파일을 railway.weekly.toml 참고용으로 쓰세요.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python weekly.py"
+cronSchedule = "7 5 * * 6"
+restartPolicyType = "NEVER"
