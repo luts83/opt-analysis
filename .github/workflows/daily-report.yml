@@ -1,16 +1,21 @@
 name: Daily Options Report
 
-# 실행 시각:
-#  - 자동: 05:07 UTC ≈ 영국 아침 06:07(BST) / 05:07(GMT).
-#    ※ GitHub cron 은 정각(:00)에 지연·스킵이 잦아 분(:07)으로 살짝 어김.
-#    화~토 실행 → 전날 미국장(월~금)을 영국 아침에 정리.
-#  - 수동: Actions 탭에서 "Run workflow" 로 언제든 실행 가능.
+# 실행 시각 (영국 아침 6시대):
+#  - 1차: 05:07 UTC ≈ 06:07 BST
+#  - 2차(백업): 05:37 UTC ≈ 06:37 BST  ← GitHub가 1차를 스킵해도 대비
+#  ※ GitHub schedule 은 best-effort라 정각/혼잡 시 지연·드롭될 수 있음.
+#  - 수동: Actions 탭 → Run workflow
 on:
   schedule:
     - cron: "7 5 * * 2-6"
+    - cron: "37 5 * * 2-6"
   workflow_dispatch:
 
-# 스냅샷을 repo 에 커밋해야 하므로 쓰기 권한 필요
+# 같은 날 중복 실행 방지(백업 cron / 수동이 겹칠 때)
+concurrency:
+  group: daily-options-report
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -21,19 +26,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Skip if already completed today (UTC)
+        id: gate
+        run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          MARKER="snapshots/.daily_sent_${TODAY}"
+          echo "event=${{ github.event_name }}"
+          echo "today_utc=$TODAY"
+          if [ -f "$MARKER" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "이미 오늘 자동 리포트가 완료됨 → 스킵"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Python
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
       - name: Install dependencies
+        if: steps.gate.outputs.skip != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run report
+        if: steps.gate.outputs.skip != 'true'
         env:
-          # GitHub → Settings → Secrets and variables → Actions 에 등록
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
@@ -42,6 +63,7 @@ jobs:
           python main.py | tee report_output.txt
 
       - name: Upload report as artifact
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: daily-report
@@ -49,14 +71,20 @@ jobs:
             report_output.txt
             snapshots/**/*.json
 
-      - name: Commit today's snapshot
+      - name: Commit snapshot + daily marker
+        if: steps.gate.outputs.skip != 'true'
         run: |
+          TODAY=$(date -u +%Y-%m-%d)
+          mkdir -p snapshots
+          touch "snapshots/.daily_sent_${TODAY}"
+          # 오래된 마커 정리(7일 이상)
+          find snapshots -name '.daily_sent_*' -mtime +7 -delete 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add snapshots/
           if git diff --staged --quiet; then
-            echo "커밋할 스냅샷 변경 없음"
+            echo "커밋할 변경 없음"
           else
-            git commit -m "chore: 옵션 스냅샷 $(date -u +%Y-%m-%d)"
+            git commit -m "chore: 옵션 스냅샷 ${TODAY}"
             git push
           fi
