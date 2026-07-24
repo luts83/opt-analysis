@@ -1,0 +1,12 @@
+# Railway — 텔레그램 수동 명령 봇 (상시 실행)
+# 같은 레포로 서비스 추가 후 Start Command / Variables 를 맞추세요.
+# Cron 은 비워 두세요 (항상 켜져 있어야 /report 를 받습니다).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python bot.py"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

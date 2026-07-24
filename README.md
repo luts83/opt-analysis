@@ -101,6 +101,28 @@ GitHub Actions `schedule` 이 이 레포에서 동작하지 않아, **Railway Cr
 
 로컬 테스트: `python main.py --no-email` (또는 `.env` 에 텔레그램 키 넣고 `python main.py`)
 
+### 텔레그램에서 수동으로 리포트 받기 (`/report`)
+
+cron 과 **별도 서비스**를 하나 더 만듭니다 (`opt-bot`):
+
+1. 같은 GitHub 레포로 New Service 추가
+2. **Start Command**: `python bot.py` (Cron Schedule 비움 — 상시 실행)
+3. Variables: daily 와 동일 (`TELEGRAM_*`, `OPENAI_API_KEY`, `SNAPSHOTS_DIR`)
+4. Volume `/data` 도 daily 와 같게 연결(가능하면)
+5. Deploy 후 봇이 `✅ 리포트 봇 준비됨` 메시지를 보내면 준비 완료
+
+채팅 명령:
+
+| 명령 | 동작 |
+|---|---|
+| `/report` | 전체 종목 리포트 |
+| `/report IREN` | 특정 종목만 |
+| `/help` | 안내 |
+
+등록된 `TELEGRAM_CHAT_ID` 채팅에서만 동작합니다.
+
+로컬: `python bot.py`
+
 ### 2) 주간 리포트 서비스 (선택)
 
 같은 레포로 서비스 하나 더 추가 (`opt-weekly`):
@@ -110,7 +132,7 @@ GitHub Actions `schedule` 이 이 레포에서 동작하지 않아, **Railway Cr
 - Variables / Volume (`/data`) 을 daily 와 **동일하게** 맞춤  
   (볼륨을 서비스 간에 공유하려면 Railway 대시보드에서 같은 볼륨을 연결)
 
-참고 파일: `Dockerfile`, `railway.toml`, `railway.weekly.toml`
+참고 파일: `Dockerfile`, `railway.toml`, `railway.weekly.toml`, `railway.bot.toml`
 
 ### 3) 로컬에서 Railway CLI
 
