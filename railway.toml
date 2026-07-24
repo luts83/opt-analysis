@@ -10,6 +10,6 @@ dockerfilePath = "Dockerfile"
 # 영국 여름 06:07 ≈ UTC 05:07 / 겨울 06:07 ≈ UTC 06:07
 # (UTC 고정. 서머타임 바뀌면 여기 분·시를 조정)
 startCommand = "python main.py"
-# TEMP 테스트: 2026-07-24 07:22 UTC — 확인 후 "7 5 * * 2-6" 로 되돌릴 것
-cronSchedule = "22 7 * * *"
+# TEMP 테스트: 2026-07-24 07:26 UTC — 확인 후 "7 5 * * 2-6" 로 되돌릴 것
+cronSchedule = "26 7 * * *"
 restartPolicyType = "NEVER"
