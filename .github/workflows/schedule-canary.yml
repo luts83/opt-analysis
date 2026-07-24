@@ -1,15 +1,11 @@
 name: Schedule Canary
 
-# schedule 이 이 private 레포에서 도는지 확인용(가벼운 echo만).
-# 동작하면 Actions 에 event=schedule 로 찍힘. 안 찍히면 GitHub cron 이 막힌 것.
+# schedule 등록 여부 진단용. timezone 키 없이 UTC cron만 사용.
 on:
   schedule:
-    - cron: "55 6 * * *"
-      timezone: Europe/London
-    - cron: "0 7 * * *"
-      timezone: Europe/London
-    - cron: "5 7 * * *"
-      timezone: Europe/London
+    - cron: "55 5 * * *"   # 06:55 BST
+    - cron: "0 6 * * *"    # 07:00 BST
+    - cron: "5 6 * * *"    # 07:05 BST
   workflow_dispatch:
 
 permissions:
@@ -24,5 +20,3 @@ jobs:
           echo "event_name=${{ github.event_name }}"
           echo "utc_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo "london_now=$(TZ=Europe/London date +%Y-%m-%dT%H:%M:%S%z)"
-          echo "ref=${{ github.ref }}"
-          echo "sha=${{ github.sha }}"

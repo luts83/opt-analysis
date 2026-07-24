@@ -1,15 +1,11 @@
 name: Daily Options Report
 
-# 영국 아침 자동 리포트
-# 1) schedule (GitHub cron) — best-effort, 가끔 스킵됨
-# 2) workflow_dispatch — 수동 / 외부 cron(cron-job.org 등) 호출용 ★권장
-# 3) repository_dispatch — 외부 트리거 대안
+# 영국 아침 ≈ 06:07 / 06:37 BST (UTC 05:07 / 05:37)
+# ※ timezone 키는 일부 환경에서 schedule 등록을 깨뜨려 UTC cron 만 사용.
 on:
   schedule:
-    - cron: "7 6 * * 2-6"
-      timezone: Europe/London
-    - cron: "37 6 * * 2-6"
-      timezone: Europe/London
+    - cron: "7 5 * * 2-6"
+    - cron: "37 5 * * 2-6"
   workflow_dispatch:
   repository_dispatch:
     types: [daily-report]
@@ -35,7 +31,6 @@ jobs:
           MARKER="snapshots/.daily_sent_${TODAY}"
           echo "event=${{ github.event_name }}"
           echo "today_london=$TODAY"
-          # 외부/수동 재실행은 허용. schedule 중복만 스킵.
           if [ -f "$MARKER" ] && [ "${{ github.event_name }}" = "schedule" ]; then
             echo "이미 오늘 자동 리포트 완료 → schedule 스킵"
             echo "skip=true" >> "$GITHUB_OUTPUT"
