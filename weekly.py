@@ -4,12 +4,12 @@
   그 주 월~금 일일 스냅샷 로드 → '그 주 첫(월요일) 예측' 추출
   → 실제 주간 OHLC 수집 → 항목별 정확도/종합 성적 채점
   → 최근 4주 추이 → ChatGPT 자연어 해석(폴백 규칙기반)
-  → 주간 스냅샷 저장 → 별도 이메일 발송.
+  → 주간 스냅샷 저장 → 텔레그램(우선) / 이메일(선택) 발송.
 
 실행:
   python weekly.py                 # 이번 주(오늘 기준) 검증
   python weekly.py --date 2026-07-24   # 해당 날짜가 속한 주 검증
-  python weekly.py --no-email --no-save
+  python weekly.py --no-email --no-telegram --no-save
 """
 from __future__ import annotations
 
@@ -22,6 +22,7 @@ from pathlib import Path
 import config
 import emailer
 import snapshot_store
+import telegram_notify
 import weekly_metrics as wm
 
 
@@ -268,13 +269,13 @@ def process_ticker(
 
 
 # ------------------------------------------------------------------ #
-# 이메일
+# 알림
 # ------------------------------------------------------------------ #
 
 def _send_email(reports: list[str], any_fail: bool, tickers: list[str],
                 week_ending: str) -> None:
     if not emailer.is_configured():
-        print("[email] 이메일 미설정 → 발송 건너뜀")
+        print("[email] 이메일 미설정 → 건너뜀")
         return
     status = " ⚠일부 실패" if any_fail else ""
     subject = (
@@ -286,7 +287,24 @@ def _send_email(reports: list[str], any_fail: bool, tickers: list[str],
         emailer.send_email(subject, body, [])
         print(f"[email] 주간 리포트 발송 완료 → {', '.join(config.EMAIL_RECIPIENTS)}")
     except emailer.EmailError as e:
-        print(f"[email] 주간 리포트 발송 실패: {e}")
+        print(f"[email] 주간 리포트 발송 실패(무시): {e}")
+
+
+def _send_telegram(reports: list[str], any_fail: bool, tickers: list[str],
+                   week_ending: str) -> None:
+    if not telegram_notify.is_configured():
+        print("[telegram] 미설정 → 건너뜀")
+        return
+    status = " ⚠일부 실패" if any_fail else ""
+    title = (
+        f"{config.EMAIL_WEEKLY_SUBJECT_PREFIX} {', '.join(tickers)} "
+        f"주간검증 - {week_ending}{status}"
+    )
+    try:
+        n = telegram_notify.send_reports(title, reports)
+        print(f"[telegram] 주간 리포트 발송 완료 ({n}통)")
+    except telegram_notify.TelegramError as e:
+        print(f"[telegram] 주간 리포트 발송 실패: {e}")
         raise
 
 
@@ -299,6 +317,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--date", help="검증할 주에 속한 날짜 (YYYY-MM-DD). 기본: 오늘")
     parser.add_argument("--no-save", action="store_true", help="주간 스냅샷 저장 안 함")
     parser.add_argument("--no-email", action="store_true", help="이메일 발송 안 함")
+    parser.add_argument("--no-telegram", action="store_true", help="텔레그램 발송 안 함")
     parser.add_argument("--ticker", help="특정 티커 하나만 실행")
     args = parser.parse_args(argv)
 
@@ -316,6 +335,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print(("\n\n" + "─" * 60 + "\n\n").join(reports))
 
+    if not args.no_telegram:
+        _send_telegram(reports, any_fail, tickers, friday.isoformat())
     if not args.no_email:
         _send_email(reports, any_fail, tickers, friday.isoformat())
 

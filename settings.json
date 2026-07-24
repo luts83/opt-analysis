@@ -28,6 +28,9 @@
     "subject_prefix": "[옵션리포트]",
     "weekly_subject_prefix": "[옵션주간검증]"
   },
+  "telegram": {
+    "enabled": true
+  },
   "events": {
     "enabled": true,
     "earnings_window_days": 3,

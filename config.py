@@ -67,6 +67,9 @@ _DEFAULTS = {
         "attach_json": True,
         "subject_prefix": "[옵션리포트]",
     },
+    "telegram": {
+        "enabled": True,
+    },
     "events": {
         "enabled": True,
         "earnings_window_days": 3,
@@ -87,6 +90,7 @@ def _load_settings() -> dict:
         }
         merged["llm"] = {**_DEFAULTS["llm"], **data.get("llm", {})}
         merged["email"] = {**_DEFAULTS["email"], **data.get("email", {})}
+        merged["telegram"] = {**_DEFAULTS["telegram"], **data.get("telegram", {})}
         merged["events"] = {**_DEFAULTS["events"], **data.get("events", {})}
         return merged
     return _DEFAULTS
@@ -142,6 +146,12 @@ _recipients_raw = os.getenv("EMAIL_RECIPIENTS", "")
 EMAIL_RECIPIENTS: list[str] = [
     e.strip() for e in _recipients_raw.split(",") if e.strip()
 ]
+
+# ---- 텔레그램 (Railway 권장 — HTTPS, SMTP 불필요) ----
+_TG = _S.get("telegram") or {}
+TELEGRAM_ENABLED: bool = bool(_TG.get("enabled", True))
+TELEGRAM_BOT_TOKEN: str | None = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID: str | None = os.getenv("TELEGRAM_CHAT_ID")
 
 # ---- 이벤트/뉴스 설정 ----
 _EV = _S["events"]

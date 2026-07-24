@@ -78,16 +78,28 @@ GitHub Actions `schedule` 이 이 레포에서 동작하지 않아, **Railway Cr
 2. 서비스 이름 예: `opt-daily`
 3. **Variables** 에 등록:
    - `OPENAI_API_KEY`
-   - `EMAIL_SENDER`
-   - `EMAIL_APP_PASSWORD`
-   - `EMAIL_RECIPIENTS`
+   - `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` (아래 텔레그램 설정)
    - `SNAPSHOTS_DIR=/data/snapshots`
+   - (선택) `EMAIL_*` — Railway Hobby 는 SMTP 가 막혀 메일 실패함. 로컬/Actions 용
 4. **Settings → Volumes**: Mount path `/data` (스냅샷 유지용 — 없으면 실행마다 OI 이력이 사라짐)
 5. **Settings → Cron Schedule**: `7 5 * * 2-6`  
    (= 영국 여름 화~토 06:07 / UTC 05:07)
 6. **Settings → Custom Start Command**: `python main.py`  
    (또는 `railway.toml` 의 값 사용)
-7. Deploy 후 **Manual Deploy** 한 번 눌러 메일 테스트
+7. Deploy 후 **Manual Deploy** 한 번 눌러 텔레그램 수신 테스트
+
+### 텔레그램 봇 설정
+
+1. Telegram 앱에서 `@BotFather` → `/newbot` → 봇 이름/유저네임 → **토큰** 복사  
+2. 만든 봇 채팅을 열고 **아무 메시지** 한 번 전송  
+3. 브라우저에서  
+   `https://api.telegram.org/bot<TOKEN>/getUpdates`  
+   → `chat":{"id": 숫자}` 가 **CHAT_ID**  
+4. Railway Variables:
+   - `TELEGRAM_BOT_TOKEN=<토큰>`
+   - `TELEGRAM_CHAT_ID=<숫자>`
+
+로컬 테스트: `python main.py --no-email` (또는 `.env` 에 텔레그램 키 넣고 `python main.py`)
 
 ### 2) 주간 리포트 서비스 (선택)
 
