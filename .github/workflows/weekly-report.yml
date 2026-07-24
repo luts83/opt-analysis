@@ -1,7 +1,7 @@
 name: Weekly Validation Report
 
 # 토 아침 ≈ 06:07 / 06:37 BST (UTC 05:07 / 05:37)
-on:
+"on":
   schedule:
     - cron: "7 5 * * 6"
     - cron: "37 5 * * 6"

@@ -1,22 +1,17 @@
 name: Schedule Canary
 
-# schedule 등록 여부 진단용. timezone 키 없이 UTC cron만 사용.
-on:
+# 최소 구성으로 schedule 등록 여부만 확인
+"on":
   schedule:
-    - cron: "55 5 * * *"   # 06:55 BST
-    - cron: "0 6 * * *"    # 07:00 BST
-    - cron: "5 6 * * *"    # 07:05 BST
+    - cron: "25 6 * * *"
+    - cron: "30 6 * * *"
+    - cron: "35 6 * * *"
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Prove schedule fired
-        run: |
-          echo "event_name=${{ github.event_name }}"
-          echo "utc_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "london_now=$(TZ=Europe/London date +%Y-%m-%dT%H:%M:%S%z)"
+      - run: |
+          echo "event=${{ github.event_name }}"
+          echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"

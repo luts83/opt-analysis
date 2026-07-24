@@ -2,7 +2,7 @@ name: Daily Options Report
 
 # 영국 아침 ≈ 06:07 / 06:37 BST (UTC 05:07 / 05:37)
 # ※ timezone 키는 일부 환경에서 schedule 등록을 깨뜨려 UTC cron 만 사용.
-on:
+"on":
   schedule:
     - cron: "7 5 * * 2-6"
     - cron: "37 5 * * 2-6"
