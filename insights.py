@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+import events
+
 
 def _level_lines(levels: dict | None) -> list[str]:
     if not levels:
@@ -166,9 +168,7 @@ def build_friendly_fallback(
     news = (eventinfo or {}).get("news") or []
     if news:
         L.append("📰 관련 뉴스")
-        for n in news[:4]:
-            pub = f" ({n['publisher']})" if n.get("publisher") else ""
-            L.append(f"- {n['title']}{pub}")
+        L.extend(events.format_news_lines(news, limit=4))
         L.append("")
 
     # 10) 액션
@@ -199,10 +199,13 @@ def build_narrative(
         data, base, anomalies, volume_anomaly, prev, trend, eventinfo, day_over_day
     )
     if text:
-        return text, "openai"
+        return events.with_linked_news(text, eventinfo), "openai"
     return (
-        build_friendly_fallback(
-            data, base, anomalies, volume_anomaly, prev, eventinfo, day_over_day
+        events.with_linked_news(
+            build_friendly_fallback(
+                data, base, anomalies, volume_anomaly, prev, eventinfo, day_over_day
+            ),
+            eventinfo,
         ),
         "rule",
     )

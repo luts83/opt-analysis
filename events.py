@@ -217,6 +217,43 @@ def _parse_news_item(n: dict) -> dict | None:
     }
 
 
+def format_news_lines(news: list[dict], *, limit: int = 5, indent: str = "") -> list[str]:
+    """텔레그램에서 클릭 가능하도록 제목 아래 전체 URL을 붙인 줄 목록."""
+    lines: list[str] = []
+    for n in (news or [])[:limit]:
+        title = (n.get("title") or "").strip() or "(제목 없음)"
+        pub = f" ({n['publisher']})" if n.get("publisher") else ""
+        link = (n.get("link") or "").strip()
+        lines.append(f"{indent}- {title}{pub}")
+        if link:
+            lines.append(f"{indent}  {link}")
+    return lines
+
+
+def with_linked_news(narrative: str, eventinfo: dict | None) -> str:
+    """본문 📰 뉴스 섹션을 링크 포함 형식으로 교체(없으면 액션 앞에 삽입)."""
+    import re
+
+    news = (eventinfo or {}).get("news") or []
+    if not news:
+        return narrative
+
+    block = "📰 관련 뉴스\n" + "\n".join(format_news_lines(news, limit=4))
+    # 기존 뉴스 섹션(다음 이모지 섹션 직전까지) 교체
+    pat = re.compile(
+        r"📰[^\n]*\n(?:.*?\n)*?(?=🎯|⚠️|$)",
+        re.MULTILINE,
+    )
+    if pat.search(narrative or ""):
+        return pat.sub(block + "\n\n", narrative, count=1).rstrip() + "\n"
+
+    # 없으면 면책 문구 앞에 삽입
+    disclaimer = "⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다."
+    if disclaimer in (narrative or ""):
+        return narrative.replace(disclaimer, block + "\n\n" + disclaimer, 1)
+    return (narrative or "").rstrip() + "\n\n" + block + "\n"
+
+
 # ------------------------------------------------------------------ #
 # 3. 가격 신뢰성(이상 급변)
 # ------------------------------------------------------------------ #

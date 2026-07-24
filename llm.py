@@ -35,7 +35,9 @@ _SYSTEM_PROMPT = """너는 주식 옵션 데이터를 '옵션을 전혀 모르�
 7. 📈 이번주 예상 범위 + 만기별 밴드 트렌드 해석
 8. 🔮 다음 장 개장 시나리오 (있으면 필수, 조건부 2~3개)
 9. ⚠️ 오늘 특이한 일 (어제대비·거래량·OI급변·어닝)
-10. 📰 관련 뉴스 (헤드라인 짧게)
+10. 📰 관련 뉴스 — 각 항목을 아래처럼 URL 전체 포함(클릭 가능하게)
+    - 제목 (매체)
+      https://...
 11. 🎯 그래서 뭘 해야 하나 (액션, 맨 아래)
 12. ⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다.
 
@@ -97,7 +99,11 @@ def _events_block(eventinfo: dict | None) -> dict | None:
         "다음장시나리오": nxt,
         "가격주의": (eventinfo.get("price") or {}).get("note"),
         "뉴스헤드라인": [
-            {"제목": n.get("title"), "매체": n.get("publisher")}
+            {
+                "제목": n.get("title"),
+                "매체": n.get("publisher"),
+                "URL": n.get("link"),
+            }
             for n in (eventinfo.get("news") or [])[:5]
         ],
     }

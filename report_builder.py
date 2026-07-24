@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import events as events_mod
+
 _ROLE_LABEL = {"this_week": "이번주", "next_week": "다음주", "monthly": "월간"}
 
 
@@ -59,9 +61,7 @@ def _events_appendix(eventinfo: dict | None) -> list[str]:
     news = eventinfo.get("news") or []
     if news:
         out.append("   · 최신 뉴스:")
-        for n in news[:5]:
-            pub = f" ({n['publisher']})" if n.get("publisher") else ""
-            out.append(f"     - {n['title']}{pub}")
+        out.extend(events_mod.format_news_lines(news, limit=5, indent="     "))
     return out
 
 
