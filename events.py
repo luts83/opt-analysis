@@ -280,10 +280,24 @@ def price_sanity(
         and regular_close is not None
     ):
         direction = "하락" if extended_vs_regular_pct < 0 else "상승"
-        notes.append(
-            f"정규장 종가 ${regular_close:g} 대비 장외에서 {extended_vs_regular_pct:+.1f}% "
-            f"{direction} — 리포트 기준가는 장외/프리마켓 반영값입니다."
-        )
+        import market_clock
+
+        ms = market_clock.get_market_session()
+        if ms == "premarket":
+            notes.append(
+                f"전일 종가 ${regular_close:g} 대비 프리마켓에서 {extended_vs_regular_pct:+.1f}% "
+                f"{direction} — 리포트 기준가는 프리마켓 반영값입니다."
+            )
+        elif ms == "afterhours":
+            notes.append(
+                f"정규장 종가 ${regular_close:g} 대비 애프터마켓에서 {extended_vs_regular_pct:+.1f}% "
+                f"{direction} — 리포트 기준가는 애프터마켓 반영값입니다."
+            )
+        else:
+            notes.append(
+                f"정규장 종가 ${regular_close:g} 대비 장외에서 {extended_vs_regular_pct:+.1f}% "
+                f"{direction} — 리포트 기준가는 장외 반영값입니다."
+            )
         abnormal = True
     return {
         "change_pct": change,
@@ -426,7 +440,9 @@ def next_session_scenarios(
     data: dict | None = None,
     earnings: dict | None = None,
 ) -> dict | None:
-    """옵션 거래 집중 + (가능하면) OI 강지지/저항으로 개장 관찰 시나리오."""
+    """옵션 거래 집중 + (가능하면) OI 강지지/저항으로 관찰 시나리오."""
+    import market_clock
+
     levels = base.get("levels") or {}
     st = ((base.get("expiry_metrics") or {}).get("this_week") or {}).get("straddle") or {}
 
@@ -448,15 +464,29 @@ def next_session_scenarios(
     regular = (data or {}).get("regular_close")
     extended = (data or {}).get("extended_price")
     gap_pct = (data or {}).get("extended_vs_regular_pct")
-    session = (data or {}).get("session") or "regular"
+    market_session = (data or {}).get("market_session") or market_clock.get_market_session()
+    when = market_clock.scenario_when_phrase(market_session)
+    section_title = market_clock.scenario_section_title(market_session)
 
     gap_note = None
-    if gap_pct is not None and abs(gap_pct) >= 1.0 and regular and extended:
+    if (
+        market_session in ("premarket", "afterhours")
+        and gap_pct is not None
+        and abs(gap_pct) >= 1.0
+        and regular
+        and extended
+    ):
         direction = "갭다운" if gap_pct < 0 else "갭업"
-        gap_note = (
-            f"정규장 종가 ${regular:g} → 장외 ${extended:g} ({gap_pct:+.1f}%, {direction}). "
-            "다음 개장은 이 장외가를 기준으로 시작될 가능성이 큽니다."
-        )
+        if market_session == "premarket":
+            gap_note = (
+                f"전일 종가 ${regular:g} → 프리마켓 ${extended:g} ({gap_pct:+.1f}%, {direction}). "
+                "정규장 개장은 이 프리마켓가를 기준으로 시작될 가능성이 큽니다."
+            )
+        else:
+            gap_note = (
+                f"정규장 종가 ${regular:g} → 애프터마켓 ${extended:g} ({gap_pct:+.1f}%, {direction}). "
+                "다음 개장은 이 애프터마켓가를 기준으로 시작될 가능성이 큽니다."
+            )
 
     scenarios: list[dict] = []
     if primary_support is not None:
@@ -468,14 +498,14 @@ def next_session_scenarios(
         scenarios.append(
             {
                 "name": "방어(반등 시도)",
-                "condition": f"개장 후 ${primary_support:g} 지지가 지켜질 때",
+                "condition": f"{when} ${primary_support:g} 지지가 지켜질 때",
                 "watch": f"이 가격 근처 매수 대기자가 받쳐주는지 확인.{extra}",
             }
         )
         scenarios.append(
             {
                 "name": "추가 하락",
-                "condition": f"개장 후 ${primary_support:g} 아래를 이탈할 때",
+                "condition": f"{when} ${primary_support:g} 아래를 이탈할 때",
                 "watch": (
                     f"다음 관심은 강한 지지 ${secondary_support:g} (풋 OI 밀집)."
                     if secondary_support
@@ -492,7 +522,7 @@ def next_session_scenarios(
         scenarios.append(
             {
                 "name": "반등 연장",
-                "condition": f"개장 후 ${primary_resist:g} 저항을 돌파·유지할 때",
+                "condition": f"{when} ${primary_resist:g} 저항을 돌파·유지할 때",
                 "watch": f"단기 숏커버/반등 가능.{extra}",
             }
         )
@@ -503,7 +533,7 @@ def next_session_scenarios(
         sur_s = f" (EPS {sur:+.1f}%)" if sur is not None else ""
         context = (
             f"실적 발표 직후{sur_s}입니다. 옵션이 가격에 반영한 지지/저항을 "
-            "개장 '관찰 체크리스트'로 쓰세요. 단정 예측이 아니라 돌파/이탈 확인용."
+            "관찰 체크리스트로 쓰세요. 단정 예측이 아니라 돌파/이탈 확인용."
         )
     elif earnings and earnings.get("phase") == "임박":
         context = (
@@ -513,9 +543,13 @@ def next_session_scenarios(
     if not scenarios and not gap_note:
         return None
 
+    hint_prefix = market_clock.action_hint_prefix(market_session)
     return {
         "reference_spot": spot,
-        "session": session,
+        "session": (data or {}).get("session") or "regular",
+        "market_session": market_session,
+        "section_title": section_title,
+        "when_phrase": when,
         "gap_note": gap_note,
         "nearest_support": primary_support,
         "nearest_resistance": primary_resist,
@@ -528,10 +562,10 @@ def next_session_scenarios(
         "context": context,
         "scenarios": scenarios[:3],
         "action_hint": (
-            f"개장 직후 첫 30분은 ${primary_support:g} 지지 / ${primary_resist:g} 저항 "
+            f"{hint_prefix}은 ${primary_support:g} 지지 / ${primary_resist:g} 저항 "
             f"반응을 체크하세요."
             if primary_support is not None and primary_resist is not None
-            else "개장 직후 지지·저항 반응을 먼저 확인하세요."
+            else f"{hint_prefix} 지지·저항 반응을 먼저 확인하세요."
         ),
     }
 

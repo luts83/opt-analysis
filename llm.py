@@ -20,20 +20,23 @@ _SYSTEM_PROMPT = """너는 주식 옵션 데이터를 '옵션을 전혀 모르�
   현재가 근처 거래량=단기 레벨. 둘 다 구분해서 쓰고, 강한 레벨을 빠뜨리지 마라.
 - '어제대비' 하이라이트가 있으면 '오늘 특이한 일'에 반드시 반영한다.
 - '밴드트렌드' 해석이 있으면 이번주 예상 범위 섹션에서 만기별 확장을 설명한다.
-- 정규장 vs 장외가가 다르면 둘 다 말하고 분석은 장외/프리 기준가를 쓴다.
+- 💰 주가 줄은 입력의 '주가표시문'을 **그대로** 쓴다 (세션별 라벨이 이미 맞춰져 있음).
+- 🔮 시나리오 섹션 제목은 입력의 '시나리오섹션제목'을 **그대로** 쓴다.
+  장중(regular)이면 '남은 장중 시나리오', 그 외에는 '다음 장 개장 시나리오'.
+  조건 문장은 '시나리오시점표현'(장중 / 개장 후)을 따른다.
 - 어닝 임박/직후면 콜/풋 '강세/약세'를 단정하지 말고 보류/주의로 다룬다.
 
 반드시 아래 순서(위에서 아래로 이야기 흐름)로 작성한다. 순서 바꾸지 말 것:
 1. 📊 제목: 오늘의 {티커} 옵션 시장 이야기 - {날짜}
 2. 🎯 한 줄 요약 (2~3문장, 맨 위)
-3. 💰 지금 주가 (정규장 vs 장외 구분)
+3. 💰 지금 주가 (주가표시문 그대로)
 4. 🚨 이벤트 경고 (어닝/가격이상 있을 때만, 없으면 생략)
 5. 🌡️ 시장 온도 (어닝이면 참고용·단정 금지)
 6. 🟢🔴 지지선/저항선 — 반드시 근거 비유 포함
    예: "🟢 강한 지지선 $34 ⭐ — '$34에 사겠다' 계약이 42,173개. 가격표를 든 대기자 ~4만 명"
    단기와 강한을 둘 다 표시
 7. 📈 이번주 예상 범위 + 만기별 밴드 트렌드 해석
-8. 🔮 다음 장 개장 시나리오 (있으면 필수, 조건부 2~3개)
+8. 🔮 시나리오 (시나리오섹션제목 그대로, 있으면 필수, 조건부 2~3개)
 9. ⚠️ 오늘 특이한 일 (어제대비·거래량·OI급변·어닝)
 10. 📰 관련 뉴스 — 각 항목을 아래처럼 URL 전체 포함(클릭 가능하게)
     - 제목 (매체)
@@ -111,6 +114,8 @@ def _events_block(eventinfo: dict | None) -> dict | None:
 
 def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
                    eventinfo=None, day_over_day=None) -> dict:
+    import market_clock
+
     spot = data["spot"]
     prev_close = data.get("previous_close")
     change_pct = (
@@ -118,14 +123,23 @@ def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
     )
     cpr = base.get("call_put_volume_ratio")
     up_pct = round(cpr / (1 + cpr) * 100) if cpr else None
+    ms = data.get("market_session") or market_clock.get_market_session()
+    nxt = (eventinfo or {}).get("next_session") or {}
     return {
         "티커": data["ticker"],
         "날짜": data["date"],
+        "시장세션": ms,
+        "시장세션한글": market_clock.session_label_ko(ms),
+        "주가표시문": market_clock.format_price_line(data),
+        "시나리오섹션제목": nxt.get("section_title")
+        or market_clock.scenario_section_title(ms),
+        "시나리오시점표현": nxt.get("when_phrase")
+        or market_clock.scenario_when_phrase(ms),
         "현재가_분석기준": spot,
         "정규장종가": data.get("regular_close"),
-        "장외_프리마켓가": data.get("extended_price"),
-        "장외_정규장대비_퍼센트": data.get("extended_vs_regular_pct"),
-        "세션": data.get("session"),
+        "확장장가_프리또는애프터": data.get("extended_price"),
+        "확장장_정규장대비_퍼센트": data.get("extended_vs_regular_pct"),
+        "가격소스세션": data.get("session"),
         "전일종가": prev_close,
         "전일대비_퍼센트": change_pct,
         "이벤트": _events_block(eventinfo),

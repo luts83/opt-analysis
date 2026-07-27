@@ -94,35 +94,55 @@ def _get_price_context(t: yf.Ticker) -> dict:
     if regular_close is None and extended is None:
         raise RuntimeError("현재가를 가져오지 못했습니다.")
 
-    # 분석 기준가: 확장가가 정규장 대비 1% 이상 다르면 확장가 우선
-    if extended is not None and regular_close is not None:
-        gap_pct = abs(extended - regular_close) / regular_close * 100
-        if gap_pct >= 1.0:
+    import market_clock
+
+    market_session = market_clock.get_market_session()
+
+    # 분석 기준가: 시계 세션 + 확장장 괴리
+    # - 프리/애프터이고 확장가가 있으면 확장가 우선
+    # - 정규장 중이면 정규가(실시간) 우선
+    # - 장 마감이면 정규 종가(없으면 확장/전일)
+    if market_session in ("premarket", "afterhours") and extended is not None:
+        if regular_close is not None:
+            gap_pct = abs(extended - regular_close) / max(regular_close, 1e-9) * 100
+            if gap_pct >= 0.05:  # 미세 차이도 확장 세션에선 확장가 사용
+                spot = extended
+                session = "extended"
+                note = f"extended({market_session})"
+            else:
+                spot = regular_close
+                session = "regular"
+                note = "regular.close"
+        else:
             spot = extended
             session = "extended"
-            note = "extended(pre/post)"
-        else:
-            spot = regular_close
-            note = "regular.close"
-    elif extended is not None:
-        spot = extended
-        session = "extended"
-        note = "extended(pre/post)"
-    else:
-        spot = regular_close
+            note = f"extended({market_session})"
+    elif market_session == "regular":
+        spot = regular_close if regular_close is not None else extended
+        session = "regular"
+        note = "regular.live"
+    else:  # closed
+        spot = regular_close if regular_close is not None else (
+            extended if extended is not None else prev_close
+        )
+        session = "regular"
         note = "regular.close"
+
+    if spot is None:
+        raise RuntimeError("현재가를 가져오지 못했습니다.")
 
     vs_regular = None
     if extended is not None and regular_close is not None:
         vs_regular = round((extended - regular_close) / regular_close * 100, 2)
 
     return {
-        "spot": round(spot, 2),
+        "spot": round(float(spot), 2),
         "previous_close": round(prev_close, 2) if prev_close else None,
         "regular_close": round(regular_close, 2) if regular_close else None,
         "extended_price": round(extended, 2) if extended else None,
         "extended_vs_regular_pct": vs_regular,
-        "session": session,
+        "session": session,  # price source: regular | extended
+        "market_session": market_session,  # clock: premarket|regular|afterhours|closed
         "spot_source": note,
     }
 
@@ -177,6 +197,7 @@ def fetch_ticker(ticker: str) -> dict:
         "extended_price": px["extended_price"],
         "extended_vs_regular_pct": px["extended_vs_regular_pct"],
         "session": px["session"],
+        "market_session": px["market_session"],
         "spot_source": px["spot_source"],
         "expiries": expiry_data,  # role -> {date, calls[], puts[]}
     }

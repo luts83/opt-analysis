@@ -69,21 +69,10 @@ def build_friendly_fallback(
         )
     L.append("")
 
-    # 2) 주가
-    regular = data.get("regular_close")
-    extended = data.get("extended_price")
-    gap = data.get("extended_vs_regular_pct")
-    if regular and extended and gap is not None and abs(gap) >= 1.0:
-        L.append(
-            f"💰 분석 기준가: ${spot} (장외/프리마켓) · "
-            f"정규장 종가 ${regular:g} → 장외 ${extended:g} ({gap:+.1f}%)"
-        )
-    elif prev_close:
-        chg = round((spot - prev_close) / prev_close * 100, 2)
-        arrow = "올랐어요" if chg > 0 else "내렸어요"
-        L.append(f"💰 지금 주가: ${spot} (어제보다 {chg:+}% {arrow})")
-    else:
-        L.append(f"💰 지금 주가: ${spot}")
+    # 2) 주가 (미국 ET 세션별 라벨)
+    import market_clock
+
+    L.append(market_clock.format_price_line(data))
     L.append("")
 
     # 3) 이벤트
@@ -128,10 +117,10 @@ def build_friendly_fallback(
             L.append(f"💡 {bt['interpretation']}")
         L.append("")
 
-    # 7) 다음 장 시나리오
+    # 7) 시나리오 (장중이면 '남은 장중', 그 외 '다음 장 개장')
     nxt = (eventinfo or {}).get("next_session") or {}
     if nxt:
-        L.append("🔮 다음 장 개장 시나리오")
+        L.append(nxt.get("section_title") or "🔮 다음 장 개장 시나리오")
         if nxt.get("gap_note"):
             L.append(nxt["gap_note"])
         for s in nxt.get("scenarios") or []:
@@ -194,18 +183,18 @@ def build_narrative(
 ) -> tuple[str, str]:
     """(본문, 출처). 출처: 'openai' | 'rule'."""
     import llm
+    import market_clock
 
     text = llm.generate_report(
         data, base, anomalies, volume_anomaly, prev, trend, eventinfo, day_over_day
     )
     if text:
-        return events.with_linked_news(text, eventinfo), "openai"
-    return (
-        events.with_linked_news(
-            build_friendly_fallback(
-                data, base, anomalies, volume_anomaly, prev, eventinfo, day_over_day
-            ),
-            eventinfo,
-        ),
-        "rule",
-    )
+        src = "openai"
+    else:
+        text = build_friendly_fallback(
+            data, base, anomalies, volume_anomaly, prev, eventinfo, day_over_day
+        )
+        src = "rule"
+    text = events.with_linked_news(text, eventinfo)
+    text = market_clock.apply_session_to_narrative(text, data, eventinfo)
+    return text, src
