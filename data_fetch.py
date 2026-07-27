@@ -15,45 +15,75 @@ import config
 from expiry_selector import select_expiries
 
 
+def _fi_float(fi, *keys: str) -> float | None:
+    """fast_info 에서 키를 item/attr 양쪽 방식으로 안전하게 읽는다."""
+    for k in keys:
+        v = None
+        try:
+            v = fi[k]
+        except Exception:
+            try:
+                v = getattr(fi, k, None)
+            except Exception:
+                v = None
+        try:
+            if v is not None and float(v) > 0:
+                return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _get_price_context(t: yf.Ticker) -> dict:
     """정규장 종가 + (가능하면) 애프터/프리마켓 최근가를 함께 반환.
 
     어닝 직후처럼 장외에서 급변한 경우, lastPrice(정규장)만 쓰면
     실제 시세와 옵션 해석이 어긋난다. extended 가 의미 있게 다르면
     분석 기준가(spot)는 extended 를 우선한다.
+
+    주의: yfinance 일봉 history 가 당일 Close=NaN 인 경우가 있어
+    (예: SPCX 2026-07-24), 정규장가는 fast_info.lastPrice 를 우선한다.
     """
     regular_close = None
     prev_close = None
     extended = None
     session = "regular"
 
-    try:
-        hist = t.history(period="5d")
-        closes = hist["Close"].dropna()
-        if not closes.empty:
-            regular_close = float(closes.iloc[-1])
-            if len(closes) >= 2:
-                prev_close = float(closes.iloc[-2])
-    except Exception:
-        pass
-
+    # 1) fast_info 정규장가 우선 (일봉 NaN 버그 회피)
     try:
         fi = t.fast_info
-        if prev_close is None:
-            try:
-                prev_close = float(fi["previousClose"])
-            except Exception:
-                pass
-        if regular_close is None:
-            p = fi["lastPrice"]
-            if p and p > 0:
-                regular_close = float(p)
+        regular_close = _fi_float(fi, "lastPrice", "last_price")
+        prev_close = _fi_float(fi, "previousClose", "previous_close")
     except Exception:
         pass
 
-    # 확장장(프리/애프터) 최근 체결 — 정규장과 괴리가 있으면 이게 '지금 시장'
+    # 2) 일봉 history 로 보완 + 직전 거래일 종가
     try:
-        ext = t.history(period="2d", interval="1h", prepost=True)
+        hist = t.history(period="10d")
+        closes = hist["Close"].dropna()
+        if not closes.empty:
+            hist_last = float(closes.iloc[-1])
+            if regular_close is None:
+                regular_close = hist_last
+            if len(closes) >= 2:
+                # history 마지막이 정규장과 거의 같으면 → 그 이전이 previous
+                if (
+                    regular_close is not None
+                    and abs(hist_last - regular_close) / max(regular_close, 1e-9) < 0.005
+                ):
+                    prev_close = float(closes.iloc[-2])
+                else:
+                    # 당일 일봉이 NaN 으로 빠져 history 가 하루 늦은 경우
+                    # hist_last 가 곧 직전 거래일 종가
+                    prev_close = hist_last
+            elif prev_close is None:
+                prev_close = hist_last
+    except Exception:
+        pass
+
+    # 3) 확장장(프리/애프터) 최근 체결
+    try:
+        ext = t.history(period="5d", interval="1h", prepost=True)
         if ext is not None and not ext.empty:
             last = float(ext["Close"].dropna().iloc[-1])
             if last > 0:
