@@ -47,6 +47,8 @@ def _get_price_context(t: yf.Ticker) -> dict:
     regular_close = None
     prev_close = None
     extended = None
+    pre_market = None
+    after_market = None
     session = "regular"
 
     # 1) fast_info 정규장가 우선 (일봉 NaN 버그 회피)
@@ -85,9 +87,37 @@ def _get_price_context(t: yf.Ticker) -> dict:
     try:
         ext = t.history(period="5d", interval="1h", prepost=True)
         if ext is not None and not ext.empty:
-            last = float(ext["Close"].dropna().iloc[-1])
-            if last > 0:
-                extended = last
+            closes = ext["Close"].dropna()
+            if not closes.empty:
+                last = float(closes.iloc[-1])
+                if last > 0:
+                    extended = last
+
+                # ET 시간대 기준으로 pre/after 구간 마지막 값 추출(표시용)
+                try:
+                    df = ext.copy()
+                    df = df.dropna(subset=["Close"])
+                    if not df.empty:
+                        idx = pd.DatetimeIndex(df.index)
+                        # tz-aware 가 아니면 UTC로 가정 후 ET로 변환
+                        if idx.tz is None:
+                            idx = idx.tz_localize("UTC").tz_convert("America/New_York")
+                        else:
+                            idx = idx.tz_convert("America/New_York")
+                        df.index = idx
+
+                        mins = df.index.hour * 60 + df.index.minute
+                        pre_mask = (mins >= 4 * 60) & (mins < 9 * 60 + 30)
+                        after_mask = (mins >= 16 * 60) & (mins < 20 * 60)
+
+                        pre_rows = df.loc[pre_mask, "Close"].dropna()
+                        post_rows = df.loc[after_mask, "Close"].dropna()
+                        if not pre_rows.empty:
+                            pre_market = float(pre_rows.iloc[-1])
+                        if not post_rows.empty:
+                            after_market = float(post_rows.iloc[-1])
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -144,6 +174,8 @@ def _get_price_context(t: yf.Ticker) -> dict:
         "session": session,  # price source: regular | extended
         "market_session": market_session,  # clock: premarket|regular|afterhours|closed
         "spot_source": note,
+        "pre_market_price": round(float(pre_market), 2) if pre_market else None,
+        "after_market_price": round(float(after_market), 2) if after_market else None,
     }
 
 
@@ -199,5 +231,7 @@ def fetch_ticker(ticker: str) -> dict:
         "session": px["session"],
         "market_session": px["market_session"],
         "spot_source": px["spot_source"],
+        "pre_market_price": px.get("pre_market_price"),
+        "after_market_price": px.get("after_market_price"),
         "expiries": expiry_data,  # role -> {date, calls[], puts[]}
     }

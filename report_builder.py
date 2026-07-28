@@ -58,10 +58,6 @@ def _events_appendix(eventinfo: dict | None) -> list[str]:
             out.append(f"     - {nxt['gap_note']}")
         for s in nxt["scenarios"]:
             out.append(f"     - {s['name']}: {s['condition']}")
-    news = eventinfo.get("news") or []
-    if news:
-        out.append("   · 최신 뉴스:")
-        out.extend(events_mod.format_news_lines(news, limit=5, indent="     "))
     return out
 
 
