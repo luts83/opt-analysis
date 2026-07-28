@@ -25,8 +25,13 @@ _SYSTEM_PROMPT = """너는 주식 옵션 데이터를 '옵션을 전혀 모르�
   장중(regular)이면 '남은 장중 시나리오', 그 외에는 '다음 장 개장 시나리오'.
   조건 문장은 '시나리오시점표현'(장중 / 개장 후)을 따른다.
 - 어닝 임박/직후면 콜/풋 '강세/약세'를 단정하지 말고 보류/주의로 다룬다.
+- '학습컨텍스트'/'어제예측검증'이 있으면 반드시 반영한다.
+  · 어제 예측이 빗나갔으면 그 교훈(개선지시)을 오늘 지지/저항·OI급변 해석에 우선 적용.
+  · OI +1000% 급변, V/OI 극단 계약은 최우선 강조.
+  · 섹션 0(어제 예측 vs 오늘 실제)은 입력의 '어제예측검증_본문'이 있으면 **그 텍스트를 그대로** 맨 위에 붙인다.
 
 반드시 아래 순서(위에서 아래로 이야기 흐름)로 작성한다. 순서 바꾸지 말 것:
+0. 📊 어제 예측 vs 오늘 실제 (어제예측검증_본문이 있을 때만, 그대로)
 1. 📊 제목: 오늘의 {티커} 옵션 시장 이야기 - {날짜}
 2. 🎯 한 줄 요약 (2~3문장, 맨 위)
 3. 💰 지금 주가 (주가표시문 그대로)
@@ -113,8 +118,10 @@ def _events_block(eventinfo: dict | None) -> dict | None:
 
 
 def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
-                   eventinfo=None, day_over_day=None) -> dict:
+                   eventinfo=None, day_over_day=None,
+                   feedback=None, learning_context=None) -> dict:
     import market_clock
+    import learning
 
     spot = data["spot"]
     prev_close = data.get("previous_close")
@@ -125,6 +132,8 @@ def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
     up_pct = round(cpr / (1 + cpr) * 100) if cpr else None
     ms = data.get("market_session") or market_clock.get_market_session()
     nxt = (eventinfo or {}).get("next_session") or {}
+    fb = feedback if feedback is not None else data.get("prediction_feedback")
+    ctx = learning_context if learning_context is not None else data.get("learning_context")
     return {
         "티커": data["ticker"],
         "날짜": data["date"],
@@ -135,6 +144,9 @@ def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
         or market_clock.scenario_section_title(ms),
         "시나리오시점표현": nxt.get("when_phrase")
         or market_clock.scenario_when_phrase(ms),
+        "어제예측검증_본문": learning.format_feedback_section(fb) or None,
+        "어제예측검증": fb,
+        "학습컨텍스트": ctx,
         "현재가_분석기준": spot,
         "정규장종가": data.get("regular_close"),
         "확장장가_프리또는애프터": data.get("extended_price"),
@@ -164,7 +176,8 @@ def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
 
 
 def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
-                    eventinfo=None, day_over_day=None) -> str | None:
+                    eventinfo=None, day_over_day=None,
+                    feedback=None, learning_context=None) -> str | None:
     if not config.LLM_ENABLED or config.LLM_PROVIDER != "openai":
         return None
     if not config.OPENAI_API_KEY:
@@ -174,7 +187,8 @@ def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
 
         client = OpenAI(api_key=config.OPENAI_API_KEY)
         payload = _build_payload(
-            data, base, anomalies, volume_anomaly, prev, trend, eventinfo, day_over_day
+            data, base, anomalies, volume_anomaly, prev, trend, eventinfo, day_over_day,
+            feedback=feedback, learning_context=learning_context,
         )
         resp = client.chat.completions.create(
             model=config.LLM_MODEL,
@@ -185,7 +199,8 @@ def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
                 {
                     "role": "user",
                     "content": "아래 데이터로 오늘의 리포트를 작성해줘. "
-                    "반드시 지정된 섹션 순서를 지키고, 지지/저항은 강한(OI)과 단기를 구분해:\n"
+                    "반드시 지정된 섹션 순서를 지키고, 지지/저항은 강한(OI)과 단기를 구분해. "
+                    "학습컨텍스트.개선지시가 있으면 오늘 해석에 반영해:\n"
                     + json.dumps(payload, ensure_ascii=False, indent=2),
                 },
             ],

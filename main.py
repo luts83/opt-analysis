@@ -18,6 +18,7 @@ import config
 import emailer
 import events as events_mod
 import insights as insights_mod
+import learning
 import metrics
 import report_builder
 import snapshot_store
@@ -66,6 +67,26 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         data["volume_anomaly"] = vol_anom
         data["day_over_day"] = dod
 
+        # 자기 학습: 어제 예측 vs 오늘 실제
+        today_ohlc = learning.daily_ohlc(ticker, dt.date.fromisoformat(data["date"]))
+        # 장중이면 스냅샷 spot/high/low 근사로 보강
+        if today_ohlc and data.get("spot") is not None:
+            if today_ohlc.get("close") is None:
+                today_ohlc["close"] = data["spot"]
+            # high/low 가 없으면 spot 으로라도 채점 가능하게
+            today_ohlc["high"] = max(
+                today_ohlc.get("high") or data["spot"], data["spot"]
+            )
+            today_ohlc["low"] = min(
+                today_ohlc.get("low") or data["spot"], data["spot"]
+            )
+        feedback = learning.grade_yesterday(ticker, prev_any, today_ohlc)
+        if feedback and feedback.get("available") and save:
+            learning.save_prediction_record(feedback)
+        learn_ctx = learning.learning_context_for_llm(ticker, feedback)
+        data["prediction_feedback"] = feedback
+        data["learning_context"] = learn_ctx
+
         # 이벤트/뉴스(어닝·헤드라인·가격·옵션 반응·다음장 시나리오) 수집
         eventinfo = events_mod.collect_events(
             ticker,
@@ -78,7 +99,16 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         data["events"] = eventinfo
 
         narrative, narrative_source = insights_mod.build_narrative(
-            data, base, anomalies, vol_anom, prev_any, trend, eventinfo, dod
+            data,
+            base,
+            anomalies,
+            vol_anom,
+            prev_any,
+            trend,
+            eventinfo,
+            dod,
+            feedback=feedback,
+            learning_context=learn_ctx,
         )
         data["narrative"] = narrative
         data["narrative_source"] = narrative_source

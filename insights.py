@@ -35,9 +35,12 @@ def _level_lines(levels: dict | None) -> list[str]:
 
 
 def build_friendly_fallback(
-    data, base, anomalies, volume_anomaly, prev, eventinfo=None, day_over_day=None
+    data, base, anomalies, volume_anomaly, prev, eventinfo=None, day_over_day=None,
+    feedback=None, learning_context=None,
 ) -> str:
     """LLM 없이도 읽히는 친근한 리포트(규칙 기반). 섹션 순서 고정."""
+    import learning
+
     spot = data["spot"]
     prev_close = data.get("previous_close")
     earn = (eventinfo or {}).get("earnings") or {}
@@ -48,6 +51,12 @@ def build_friendly_fallback(
     )
 
     L: list[str] = []
+    # 0) 어제 예측 피드백
+    fb_text = learning.format_feedback_section(feedback or data.get("prediction_feedback"))
+    if fb_text:
+        L.append(fb_text.rstrip())
+        L.append("")
+
     L.append(f"📊 오늘의 {data['ticker']} 옵션 시장 이야기 - {data['date']}")
     L.append("")
 
@@ -179,22 +188,33 @@ def build_friendly_fallback(
 
 
 def build_narrative(
-    data, base, anomalies, volume_anomaly, prev, trend, eventinfo=None, day_over_day=None
+    data, base, anomalies, volume_anomaly, prev, trend, eventinfo=None, day_over_day=None,
+    feedback=None, learning_context=None,
 ) -> tuple[str, str]:
     """(본문, 출처). 출처: 'openai' | 'rule'."""
     import llm
     import market_clock
+    import learning
+
+    fb = feedback if feedback is not None else data.get("prediction_feedback")
+    ctx = learning_context if learning_context is not None else data.get("learning_context")
 
     text = llm.generate_report(
-        data, base, anomalies, volume_anomaly, prev, trend, eventinfo, day_over_day
+        data, base, anomalies, volume_anomaly, prev, trend, eventinfo, day_over_day,
+        feedback=fb, learning_context=ctx,
     )
     if text:
         src = "openai"
     else:
         text = build_friendly_fallback(
-            data, base, anomalies, volume_anomaly, prev, eventinfo, day_over_day
+            data, base, anomalies, volume_anomaly, prev, eventinfo, day_over_day,
+            feedback=fb, learning_context=ctx,
         )
         src = "rule"
     text = events.with_linked_news(text, eventinfo)
     text = market_clock.apply_session_to_narrative(text, data, eventinfo)
+    # LLM 이 피드백 섹션을 빼먹어도 상단에 강제 삽입
+    fb_block = learning.format_feedback_section(fb)
+    if fb_block and "어제 예측 vs 오늘 실제" not in text:
+        text = fb_block + "\n" + text
     return text, src

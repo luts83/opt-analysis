@@ -6,8 +6,6 @@
 """
 from __future__ import annotations
 
-import events as events_mod
-
 _ROLE_LABEL = {"this_week": "이번주", "next_week": "다음주", "monthly": "월간"}
 
 
@@ -125,6 +123,31 @@ def build_report(data: dict, base: dict, anomalies: list[dict],
             L.append(f"     - {h}")
     elif dod.get("note"):
         L.append(f"   · 어제 대비: {dod['note']}")
+
+    # 학습 피드백 요약
+    fb = data.get("prediction_feedback") or {}
+    if fb.get("available"):
+        acc = fb.get("accuracy") or {}
+        L.append("   · 어제 예측 채점:")
+        if acc.get("summary"):
+            L.append(f"     - {acc['summary']}")
+        g = acc.get("grade") or {}
+        if g.get("grade") is not None:
+            L.append(f"     - 종합 {g.get('grade')} ({g.get('score')}점)")
+        if fb.get("lesson"):
+            L.append(f"     - 교훈: {fb['lesson']}")
+    ctx = data.get("learning_context") or {}
+    s7 = ctx.get("최근7일") or {}
+    if s7.get("available"):
+        bits = []
+        if s7.get("band_accuracy_pct") is not None:
+            bits.append(f"밴드 {s7['band_accuracy_pct']}%")
+        if s7.get("support_accuracy_pct") is not None:
+            bits.append(f"지지 {s7['support_accuracy_pct']}%")
+        if s7.get("direction_accuracy_pct") is not None:
+            bits.append(f"방향 {s7['direction_accuracy_pct']}%")
+        if bits:
+            L.append(f"   · 최근7일 정확도: {', '.join(bits)} (n={s7.get('n')})")
 
     # V/OI 상위
     L.append("   · V/OI 상위:")
