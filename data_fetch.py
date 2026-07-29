@@ -3,16 +3,21 @@
 검증 단계 주의사항:
 - ticker.info 는 타임아웃이 잦아 사용하지 않는다.
 - 현재가는 fast_info['lastPrice'] → history() 종가 순으로 폴백.
+- previous_close 는 fast_info 를 신뢰하지 않고 history[-2] 로 확정한다.
+  (리포트 실행 시각이 ET 새벽이면 yfinance previousClose 가 밀릴 수 있음)
 """
 from __future__ import annotations
 
 import datetime as dt
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
 
 import config
 from expiry_selector import select_expiries
+
+_ET = ZoneInfo("America/New_York")
 
 
 def _fi_float(fi, *keys: str) -> float | None:
@@ -34,90 +39,86 @@ def _fi_float(fi, *keys: str) -> float | None:
     return None
 
 
+def _last_trade_date() -> dt.date:
+    """ET 기준 가장 최근 거래일(오늘이 장중이면 오늘, 아니면 직전 영업일)."""
+    now_et = dt.datetime.now(_ET)
+    d = now_et.date()
+    h = now_et.hour
+    # 아직 정규장(09:30) 전이면 전 거래일 데이터가 최신
+    if h < 4:
+        d -= dt.timedelta(days=1)
+    # 주말 보정
+    while d.weekday() >= 5:
+        d -= dt.timedelta(days=1)
+    return d
+
+
 def _get_price_context(t: yf.Ticker) -> dict:
-    """정규장 종가 + (가능하면) 애프터/프리마켓 최근가를 함께 반환.
+    """정규장 종가 + 프리마켓 최근가를 함께 반환.
 
-    어닝 직후처럼 장외에서 급변한 경우, lastPrice(정규장)만 쓰면
-    실제 시세와 옵션 해석이 어긋난다. extended 가 의미 있게 다르면
-    분석 기준가(spot)는 extended 를 우선한다.
-
-    주의: yfinance 일봉 history 가 당일 Close=NaN 인 경우가 있어
-    (예: SPCX 2026-07-24), 정규장가는 fast_info.lastPrice 를 우선한다.
+    핵심 원칙:
+    - regular_close = history 마지막 Close (가장 최근 거래일 종가)
+    - previous_close = history 끝에서 2번째 Close (전전 거래일)
+    - pre_market_price = 오늘(ET) 프리마켓 구간(04:00~09:30) 최근가만
+    - after_market_price = 사용하지 않음 (리포트가 다음날 새벽에 발행되므로 무의미)
     """
     regular_close = None
     prev_close = None
     extended = None
     pre_market = None
-    after_market = None
     session = "regular"
 
-    # 1) fast_info 정규장가 우선 (일봉 NaN 버그 회피)
+    # 1) fast_info 로 정규장가 빠르게 취득 (history NaN 버그 대비)
     try:
         fi = t.fast_info
         regular_close = _fi_float(fi, "lastPrice", "last_price")
-        prev_close = _fi_float(fi, "previousClose", "previous_close")
     except Exception:
         pass
 
-    # 2) 일봉 history 로 보완 + 직전 거래일 종가
+    # 2) 일봉 history 로 regular_close 보완 + previous_close 확정
+    hist_closes: list[float] = []
     try:
         hist = t.history(period="10d")
         closes = hist["Close"].dropna()
         if not closes.empty:
-            hist_last = float(closes.iloc[-1])
+            hist_closes = [float(c) for c in closes]
+            hist_last = hist_closes[-1]
             if regular_close is None:
                 regular_close = hist_last
-            if len(closes) >= 2:
-                # history 마지막이 정규장과 거의 같으면 → 그 이전이 previous
-                if (
-                    regular_close is not None
-                    and abs(hist_last - regular_close) / max(regular_close, 1e-9) < 0.005
-                ):
-                    prev_close = float(closes.iloc[-2])
-                else:
-                    # 당일 일봉이 NaN 으로 빠져 history 가 하루 늦은 경우
-                    # hist_last 가 곧 직전 거래일 종가
-                    prev_close = hist_last
-            elif prev_close is None:
-                prev_close = hist_last
+            elif abs(hist_last - regular_close) / max(regular_close, 1e-9) < 0.005:
+                pass  # fast_info 와 history 일치
+            # previous_close 는 항상 history[-2] (밀리지 않는 확실한 값)
+            if len(hist_closes) >= 2:
+                prev_close = hist_closes[-2]
     except Exception:
         pass
 
-    # 3) 확장장(프리/애프터) 최근 체결
+    # 3) 프리마켓 최근가만 추출 (오늘 ET 날짜에 한정)
+    today_et = dt.datetime.now(_ET).date()
     try:
         ext = t.history(period="5d", interval="1h", prepost=True)
         if ext is not None and not ext.empty:
-            closes = ext["Close"].dropna()
-            if not closes.empty:
-                last = float(closes.iloc[-1])
-                if last > 0:
-                    extended = last
+            df = ext.copy().dropna(subset=["Close"])
+            if not df.empty:
+                idx = pd.DatetimeIndex(df.index)
+                if idx.tz is None:
+                    idx = idx.tz_localize("UTC").tz_convert("America/New_York")
+                else:
+                    idx = idx.tz_convert("America/New_York")
+                df.index = idx
 
-                # ET 시간대 기준으로 pre/after 구간 마지막 값 추출(표시용)
-                try:
-                    df = ext.copy()
-                    df = df.dropna(subset=["Close"])
-                    if not df.empty:
-                        idx = pd.DatetimeIndex(df.index)
-                        # tz-aware 가 아니면 UTC로 가정 후 ET로 변환
-                        if idx.tz is None:
-                            idx = idx.tz_localize("UTC").tz_convert("America/New_York")
-                        else:
-                            idx = idx.tz_convert("America/New_York")
-                        df.index = idx
+                # extended = prepost 전체 마지막 (spot 결정용)
+                last_val = float(df["Close"].iloc[-1])
+                if last_val > 0:
+                    extended = last_val
 
-                        mins = df.index.hour * 60 + df.index.minute
-                        pre_mask = (mins >= 4 * 60) & (mins < 9 * 60 + 30)
-                        after_mask = (mins >= 16 * 60) & (mins < 20 * 60)
-
-                        pre_rows = df.loc[pre_mask, "Close"].dropna()
-                        post_rows = df.loc[after_mask, "Close"].dropna()
-                        if not pre_rows.empty:
-                            pre_market = float(pre_rows.iloc[-1])
-                        if not post_rows.empty:
-                            after_market = float(post_rows.iloc[-1])
-                except Exception:
-                    pass
+                # 오늘(ET) 프리마켓만 (04:00~09:30)
+                today_mask = df.index.date == today_et
+                mins = df.index.hour * 60 + df.index.minute
+                pre_mask = today_mask & (mins >= 4 * 60) & (mins < 9 * 60 + 30)
+                pre_rows = df.loc[pre_mask, "Close"].dropna()
+                if not pre_rows.empty:
+                    pre_market = float(pre_rows.iloc[-1])
     except Exception:
         pass
 
@@ -128,14 +129,11 @@ def _get_price_context(t: yf.Ticker) -> dict:
 
     market_session = market_clock.get_market_session()
 
-    # 분석 기준가: 시계 세션 + 확장장 괴리
-    # - 프리/애프터이고 확장가가 있으면 확장가 우선
-    # - 정규장 중이면 정규가(실시간) 우선
-    # - 장 마감이면 정규 종가(없으면 확장/전일)
+    # 분석 기준가(spot) 결정
     if market_session in ("premarket", "afterhours") and extended is not None:
         if regular_close is not None:
             gap_pct = abs(extended - regular_close) / max(regular_close, 1e-9) * 100
-            if gap_pct >= 0.05:  # 미세 차이도 확장 세션에선 확장가 사용
+            if gap_pct >= 0.05:
                 spot = extended
                 session = "extended"
                 note = f"extended({market_session})"
@@ -171,11 +169,11 @@ def _get_price_context(t: yf.Ticker) -> dict:
         "regular_close": round(regular_close, 2) if regular_close else None,
         "extended_price": round(extended, 2) if extended else None,
         "extended_vs_regular_pct": vs_regular,
-        "session": session,  # price source: regular | extended
-        "market_session": market_session,  # clock: premarket|regular|afterhours|closed
+        "session": session,
+        "market_session": market_session,
         "spot_source": note,
         "pre_market_price": round(float(pre_market), 2) if pre_market else None,
-        "after_market_price": round(float(after_market), 2) if after_market else None,
+        "after_market_price": None,  # 리포트 시점에 무의미 → 항상 None
     }
 
 
@@ -188,7 +186,6 @@ def _extract_rows(df: pd.DataFrame) -> list[dict]:
         row = {}
         for f in config.OPTION_FIELDS:
             v = r.get(f)
-            # NaN / None 정리
             if v is None or (isinstance(v, float) and pd.isna(v)):
                 v = 0 if f in ("volume", "openInterest") else None
             elif f in ("volume", "openInterest"):
@@ -201,14 +198,11 @@ def _extract_rows(df: pd.DataFrame) -> list[dict]:
 
 
 def fetch_ticker(ticker: str) -> dict:
-    """한 종목의 3개 만기 옵션 체인 + 현재가를 dict 로 반환한다.
-
-    반환 구조는 snapshot_store 에서 그대로 저장 가능.
-    """
+    """한 종목의 3개 만기 옵션 체인 + 현재가를 dict 로 반환한다."""
     t = yf.Ticker(ticker)
     px = _get_price_context(t)
     spot = px["spot"]
-    expiries = select_expiries(ticker)  # {"this_week","next_week","monthly"}
+    expiries = select_expiries(ticker)
 
     expiry_data: dict[str, dict] = {}
     for role, exp in expiries.items():
@@ -219,9 +213,12 @@ def fetch_ticker(ticker: str) -> dict:
             "puts": _extract_rows(oc.puts),
         }
 
+    # 리포트 날짜 = ET 기준 가장 최근 거래일
+    report_date = _last_trade_date().isoformat()
+
     return {
         "ticker": ticker,
-        "date": dt.date.today().isoformat(),
+        "date": report_date,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "spot": spot,
         "previous_close": px["previous_close"],
@@ -232,6 +229,6 @@ def fetch_ticker(ticker: str) -> dict:
         "market_session": px["market_session"],
         "spot_source": px["spot_source"],
         "pre_market_price": px.get("pre_market_price"),
-        "after_market_price": px.get("after_market_price"),
-        "expiries": expiry_data,  # role -> {date, calls[], puts[]}
+        "after_market_price": None,
+        "expiries": expiry_data,
     }

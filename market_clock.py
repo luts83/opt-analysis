@@ -109,8 +109,6 @@ def format_price_line(data: dict) -> str:
         reg_price = regular if regular is not None else spot
         day_base = prev
 
-    close_base = regular if regular is not None else (prev if ms == "closed" else reg_price)
-
     lines: list[str] = ["💰 가격"]
     day_pct = _pct(reg_price, day_base) if day_base is not None else None
     if day_pct:
@@ -118,19 +116,13 @@ def format_price_line(data: dict) -> str:
     else:
         lines.append(f"- {reg_label}: {_fmt(reg_price)}")
 
-    if after is not None:
-        ap = _pct(after, close_base)
-        if ap:
-            lines.append(f"- 애프터마켓: {_fmt(after)} ({ap} vs 종가)")
-        else:
-            lines.append(f"- 애프터마켓: {_fmt(after)}")
-
+    # 프리마켓만 (오늘 ET에 데이터가 있을 때). 애프터마켓은 리포트 시점에 무의미하므로 미표시.
     if pre is not None:
-        pp = _pct(pre, close_base)
+        pp = _pct(pre, reg_price)
         if pp:
-            lines.append(f"- 프리마켓: {_fmt(pre)} ({pp} vs 종가)")
+            lines.append(f"- 오늘 프리마켓: {_fmt(pre)} ({pp} vs 종가)")
         else:
-            lines.append(f"- 프리마켓: {_fmt(pre)}")
+            lines.append(f"- 오늘 프리마켓: {_fmt(pre)}")
 
     return "\n".join(lines)
 

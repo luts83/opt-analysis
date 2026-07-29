@@ -60,11 +60,18 @@ def _one_liner(data, base, eventinfo) -> str:
     if earn.get("phase") in ("임박", "직후"):
         return f"{ticker} 실적 {earn.get('phase')} — 변동성·레벨 반응 우선"
     chg = ((eventinfo or {}).get("price") or {}).get("change_pct")
-    if chg is not None and chg <= -3 and strong:
-        return f"{ticker} 급락 ${strong:g} 지지선 테스트 임박"
+    if chg is not None and chg <= -3 and strong and spot is not None:
+        if spot <= strong:
+            return f"{ticker} 급락 — ${strong:g} 지지 이미 이탈, 추가 하락 경계"
+        else:
+            return f"{ticker} 급락 ${strong:g} 지지선 테스트 임박"
     if chg is not None and chg >= 3 and near_r:
+        if spot is not None and spot >= near_r:
+            return f"{ticker} 급등 — ${near_r:g} 저항 돌파, 추가 상승 여부 주시"
         return f"{ticker} 급등 ${near_r:g} 저항 테스트"
     if senti == "약세" and near_s:
+        if spot is not None and spot <= near_s:
+            return f"{ticker} 약세 — ${near_s:g} 지지 이탈, 하방 확인 필요"
         return f"{ticker} 약세 — ${near_s:g} 지지 이탈 여부 주시"
     if senti == "강세" and near_r:
         return f"{ticker} 강세 — ${near_r:g} 돌파 여부 주시"
