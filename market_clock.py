@@ -97,9 +97,11 @@ def format_price_line(data: dict) -> str:
             return None
 
     if ms == "closed":
+        # regular_close = history[-1] = 가장 최근 거래일 종가 (진짜 "전일 종가")
+        # prev = history[-2] = 전전 거래일 (변동률 계산용)
         reg_label = "전일 종가"
-        reg_price = prev if prev is not None else regular if regular is not None else spot
-        day_base = None
+        reg_price = regular if regular is not None else spot
+        day_base = prev
     elif ms == "regular":
         reg_label = "장중 실시간가"
         reg_price = regular if regular is not None else spot
