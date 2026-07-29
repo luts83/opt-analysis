@@ -72,13 +72,15 @@ def action_hint_prefix(market_session: str) -> str:
 
 
 def format_price_line(data: dict) -> str:
-    """세션별 💰 가격 블록 — 기준(전일/종가)을 명시."""
+    """세션별 💰 가격 블록 — 날짜를 명시해서 혼동 방지."""
+    import datetime as _dt
+
     ms = data.get("market_session") or get_market_session()
     spot = data.get("spot")
     prev = data.get("previous_close")
     regular = data.get("regular_close")
-    after = data.get("after_market_price")
     pre = data.get("pre_market_price")
+    report_date = data.get("date")  # ET 기준 최근 거래일 (e.g. "2026-07-28")
 
     def _fmt(v) -> str:
         if v is None:
@@ -96,10 +98,26 @@ def format_price_line(data: dict) -> str:
         except Exception:
             return None
 
+    def _date_label(iso: str | None, delta_days: int = 0) -> str:
+        """ISO 날짜 → '7/28(화)' 형태. delta_days로 영업일 전일 근사."""
+        if not iso:
+            return ""
+        try:
+            d = _dt.date.fromisoformat(iso)
+            if delta_days:
+                d -= _dt.timedelta(days=1)
+                while d.weekday() >= 5:
+                    d -= _dt.timedelta(days=1)
+            dow = "월화수목금토일"[d.weekday()]
+            return f"{d.month}/{d.day}({dow})"
+        except Exception:
+            return ""
+
+    close_date = _date_label(report_date)
+    prev_date = _date_label(report_date, delta_days=1)
+
     if ms == "closed":
-        # regular_close = history[-1] = 가장 최근 거래일 종가 (진짜 "전일 종가")
-        # prev = history[-2] = 전전 거래일 (변동률 계산용)
-        reg_label = "전일 종가"
+        reg_label = f"{close_date} 종가" if close_date else "전일 종가"
         reg_price = regular if regular is not None else spot
         day_base = prev
     elif ms == "regular":
@@ -107,24 +125,32 @@ def format_price_line(data: dict) -> str:
         reg_price = regular if regular is not None else spot
         day_base = prev
     else:
-        reg_label = "정규장 종가"
+        reg_label = f"{close_date} 종가" if close_date else "정규장 종가"
         reg_price = regular if regular is not None else spot
         day_base = prev
 
     lines: list[str] = ["💰 가격"]
     day_pct = _pct(reg_price, day_base) if day_base is not None else None
     if day_pct:
-        lines.append(f"- {reg_label}: {_fmt(reg_price)} (전일 대비 {day_pct})")
+        base_tag = f"{prev_date} 대비" if prev_date else "전일 대비"
+        lines.append(f"- {reg_label}: {_fmt(reg_price)} ({base_tag} {day_pct})")
     else:
         lines.append(f"- {reg_label}: {_fmt(reg_price)}")
 
-    # 프리마켓만 (오늘 ET에 데이터가 있을 때). 애프터마켓은 리포트 시점에 무의미하므로 미표시.
     if pre is not None:
         pp = _pct(pre, reg_price)
+        today_label = ""
+        try:
+            now_et = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=-4)))
+            td = now_et.date()
+            dow = "월화수목금토일"[td.weekday()]
+            today_label = f"{td.month}/{td.day}({dow}) "
+        except Exception:
+            pass
         if pp:
-            lines.append(f"- 오늘 프리마켓: {_fmt(pre)} ({pp} vs 종가)")
+            lines.append(f"- {today_label}프리마켓: {_fmt(pre)} ({pp} vs 종가)")
         else:
-            lines.append(f"- 오늘 프리마켓: {_fmt(pre)}")
+            lines.append(f"- {today_label}프리마켓: {_fmt(pre)}")
 
     return "\n".join(lines)
 
