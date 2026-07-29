@@ -14,14 +14,11 @@ Railway: 서비스 하나만.
 """
 from __future__ import annotations
 
-import datetime as dt
-import json
 import re
 import sys
 import threading
 import time
 import traceback
-from pathlib import Path
 
 import config
 import main as daily_main
@@ -44,50 +41,6 @@ _HELP = """옵션 리포트 봇
 
 _lock = threading.Lock()
 _TICKER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9.\-]{0,9}$")
-
-# Railway 재시작(재배포/에러) 시 프로세스가 다시 뜨면서
-# "리포트 봇 준비됨" 메시지가 반복 발송될 수 있음.
-# 이를 완화하기 위해 최근 전송일 기준 쿨다운을 둠.
-_STATE_DIR = Path(__file__).resolve().parent / ".bot_state"
-_READY_SENT_FILE = _STATE_DIR / "telegram_ready_last.json"
-_READY_COOLDOWN_HOURS = 6
-
-
-def _load_last_ready_sent_at() -> dt.datetime | None:
-    try:
-        if not _READY_SENT_FILE.exists():
-            return None
-        raw = _READY_SENT_FILE.read_text(encoding="utf-8")
-        data = json.loads(raw or "{}")
-        iso = data.get("last_sent_at")
-        if not iso:
-            return None
-        return dt.datetime.fromisoformat(iso)
-    except Exception:
-        return None
-
-
-def _should_send_ready(now: dt.datetime) -> bool:
-    last = _load_last_ready_sent_at()
-    if last is None:
-        return True
-    # iso가 naive일 가능성 대비: fallback은 그대로 전달된 last 사용
-    try:
-        return (now - last) >= dt.timedelta(hours=_READY_COOLDOWN_HOURS)
-    except Exception:
-        return True
-
-
-def _mark_ready_sent_at(now: dt.datetime) -> None:
-    try:
-        _STATE_DIR.mkdir(parents=True, exist_ok=True)
-        _READY_SENT_FILE.write_text(
-            json.dumps({"last_sent_at": now.isoformat()}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    except Exception:
-        # 파일 저장 실패해도 봇 동작은 계속
-        pass
 
 
 def _parse_command(text: str) -> tuple[str | None, list[str]]:
@@ -199,14 +152,6 @@ def run_forever() -> int:
     threading.Thread(target=_scheduler_loop, name="scheduler", daemon=True).start()
 
     print(f"[bot] listening chat={config.TELEGRAM_CHAT_ID}")
-    try:
-        now = dt.datetime.now(dt.timezone.utc)
-        if _should_send_ready(now):
-            tg.send_text("✅ 리포트 봇 준비됨. /report 또는 /help")
-            _mark_ready_sent_at(now)
-    except tg.TelegramError as e:
-        print(f"[bot] 시작 알림 실패: {e}")
-        return 1
 
     offset: int | None = None
     while True:
