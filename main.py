@@ -60,6 +60,8 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
 
         # OI 급변은 당일 OI 가 실측일 때만. 어제 대비(주가·거래량·심리)는 항상.
         anomalies = metrics.build_anomalies(data, prev_oi, oi_real=oi_real)
+        metrics.apply_sentiment_tags(base, anomalies)
+        data["metrics"] = base
         vol_anom = metrics.build_volume_anomaly(data, history)
         dod = metrics.build_day_over_day(data, base, prev_any)
         trend = metrics.build_trend(history, data)

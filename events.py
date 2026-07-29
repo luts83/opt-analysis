@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 import config
 
@@ -202,7 +203,12 @@ def _parse_news_item(n: dict) -> dict | None:
                 "url"
             )
         )
-        return {"title": title, "publisher": publisher, "published": published, "link": link}
+        return {
+            "title": title,
+            "publisher": publisher,
+            "published": published,
+            "link": _clean_url(link or ""),
+        }
     published = n.get("providerPublishTime")
     if isinstance(published, (int, float)):
         try:
@@ -213,28 +219,49 @@ def _parse_news_item(n: dict) -> dict | None:
         "title": n.get("title"),
         "publisher": n.get("publisher"),
         "published": published,
-        "link": n.get("link"),
+        "link": _clean_url(n.get("link") or ""),
     }
 
 
 def format_news_lines(news: list[dict], *, limit: int = 3, indent: str = "") -> list[str]:
-    """텔레그램에서 클릭 가능하도록 제목 아래 전체 URL을 붙인 줄 목록."""
+    """텔레그램용 plain URL (마크다운 링크 금지 — 파싱 깨짐 방지)."""
     lines: list[str] = []
     for n in (news or [])[:limit]:
         title = (n.get("title") or "").strip() or "(제목 없음)"
+        # 마크다운/제어문자 제거
+        title = re.sub(r"\[|\]|\(|\)", "", title)
+        title = title.replace("\ufffc", "").strip()
         pub = f" ({n['publisher']})" if n.get("publisher") else ""
-        link = (n.get("link") or "").strip()
+        link = _clean_url(n.get("link") or "")
         summary = (n.get("summary") or n.get("snippet") or "").strip()
         lines.append(f"{indent}- {title}{pub}")
         if summary:
-            # 한 줄만
-            one = summary.replace("\n", " ")
+            one = summary.replace("\n", " ").replace("\ufffc", "")
             if len(one) > 80:
                 one = one[:77] + "..."
             lines.append(f"{indent}  · {one}")
         if link:
             lines.append(f"{indent}  {link}")
     return lines
+
+
+def _clean_url(url: str) -> str:
+    """URL 끝의 이상문자·마크다운 잔여물 제거."""
+    if not url:
+        return ""
+    u = url.strip().replace("\ufffc", "").replace("\u200b", "")
+    # [url](url) 형태면 안쪽만
+    m = re.match(r"^\[([^\]]*)\]\((https?://[^)]+)\)\s*$", u)
+    if m:
+        u = m.group(2)
+    # 뒤에 붙은 비ASCII/구두점 제거
+    u = re.sub(r"[^\x21-\x7E]+$", "", u)
+    u = u.rstrip(".,;)]}>\"'-_")
+    # 경로 끝 '/-' 같은 잔여
+    u = re.sub(r"/-+$", "/", u)
+    if not u.startswith("http"):
+        return ""
+    return u
 
 
 def with_linked_news(narrative: str, eventinfo: dict | None) -> str:
@@ -436,12 +463,17 @@ def next_session_scenarios(
     data: dict | None = None,
     earnings: dict | None = None,
 ) -> dict | None:
-    """옵션 거래 집중 + OI 강지지/저항 → 가능성 순 시나리오 + 체크포인트."""
+    """옵션 거래 집중 + OI 강지지/저항 → 가능성 순 시나리오 3개 + 체크포인트."""
     import market_clock
 
     levels = base.get("levels") or {}
     st = ((base.get("expiry_metrics") or {}).get("this_week") or {}).get("straddle") or {}
     senti = base.get("sentiment") or "중립"
+    change_pct = base.get("price_change_pct")
+    if change_pct is None and data:
+        prev_c = data.get("previous_close")
+        if prev_c and spot:
+            change_pct = round((spot - float(prev_c)) / float(prev_c) * 100, 2)
     max_dist = spot * 0.15  # 시나리오 1차 레벨: 현재가 ±15%
 
     strong_sup_list = levels.get("strong_support") or []
@@ -472,14 +504,21 @@ def next_session_scenarios(
     resists_above = sorted(
         {s for s in resist_cands if s >= spot * 0.995 and (s - spot) <= max_dist}
     )
+    # 후보가 비면 근처 레벨을 합성해 시나리오 3개를 항상 채운다
     if not supports_below:
-        supports_below = sorted({s for s in support_cands if s <= spot * 1.005}, reverse=True)[:1]
+        supports_below = sorted({s for s in support_cands if s <= spot * 1.005}, reverse=True)[:2]
     if not resists_above:
-        resists_above = sorted({s for s in resist_cands if s >= spot * 0.995})[:1]
+        resists_above = sorted({s for s in resist_cands if s >= spot * 0.995})[:2]
+    if not supports_below:
+        supports_below = [round(spot * 0.95, 2), round(spot * 0.90, 2)]
+    if len(supports_below) < 2:
+        supports_below = list(supports_below) + [round(supports_below[0] * 0.93, 2)]
+    if not resists_above:
+        resists_above = [round(spot * 1.05, 2)]
 
-    primary_support = supports_below[0] if supports_below else None
-    next_support = supports_below[1] if len(supports_below) > 1 else None
-    primary_resist = resists_above[0] if resists_above else None
+    primary_support = supports_below[0]
+    next_support = supports_below[1] if len(supports_below) > 1 else round(primary_support * 0.93, 2)
+    primary_resist = resists_above[0]
     secondary_resist = resists_above[1] if len(resists_above) > 1 else None
     reclaim = None
     if strong_sup is not None and strong_sup > spot * 1.005 and (strong_sup - spot) <= max_dist:
@@ -510,55 +549,45 @@ def next_session_scenarios(
                 f"정규장 종가 ${regular:g} → 애프터마켓 ${extended:g} ({gap_pct:+.1f}%, {direction})."
             )
 
-    candidates: list[dict] = []
-    if primary_support is not None:
-        watch_down = (
-            f"다음 관심 ${next_support:g}."
-            if next_support
-            else (
-                f"${reclaim:g} 탈환 실패 시 하락 지속."
-                if reclaim
-                else "하락 가속 여부 확인."
-            )
-        )
-        candidates.append(
-            {
-                "name": "하락 지속",
-                "condition": f"{when} ${primary_support:g} 이탈",
-                "watch": watch_down,
-                "rank_bias": 3 if senti == "약세" else (2 if senti == "중립" else 1),
-            }
-        )
-        box = (
-            f"{when} ${primary_support:g}~${primary_resist:g} 박스"
-            if primary_resist is not None
-            else f"{when} ${primary_support:g} 지지 유지"
-        )
-        candidates.append(
-            {
-                "name": "횡보",
-                "condition": box,
-                "watch": "돌파/이탈 전까진 방향 단정하지 않기.",
-                "rank_bias": 3 if senti == "중립" else 2,
-            }
-        )
-    if primary_resist is not None:
-        extra = f" 다음 저항 ${secondary_resist:g}." if secondary_resist else ""
-        reclaim_bit = f" / ${reclaim:g} 탈환" if reclaim else ""
-        candidates.append(
-            {
-                "name": "반등 시도",
-                "condition": f"{when} ${primary_resist:g} 돌파{reclaim_bit}",
-                "watch": f"숏커버·반등 가능.{extra}",
-                "rank_bias": 3 if senti == "강세" else (1 if senti == "약세" else 2),
-            }
-        )
+    bearish = senti in ("약세", "반등 시도 국면", "양방향 극단 베팅", "차익실현/헤지 국면") or (
+        change_pct is not None and change_pct <= -5
+    )
+    bullish = senti == "강세" and not bearish
+
+    reclaim_bit = f" / ${reclaim:g} 탈환" if reclaim else ""
+    candidates: list[dict] = [
+        {
+            "name": "하락 지속",
+            "condition": f"{when} ${primary_support:g} 이탈 시 ${next_support:g} 도전",
+            "watch": "하방 가속·풋 헤지 유효성 확인.",
+            "rank_bias": 4 if bearish else (2 if senti == "중립" else 1),
+        },
+        {
+            "name": "반등 시도",
+            "condition": f"{when} ${primary_resist:g} 돌파{reclaim_bit}",
+            "watch": (
+                f"숏커버·반등 가능."
+                + (f" 다음 저항 ${secondary_resist:g}." if secondary_resist else "")
+            ),
+            "rank_bias": 3 if bullish else (2 if senti in ("반등 시도 국면", "중립") else 1),
+        },
+        {
+            "name": "횡보",
+            "condition": f"{when} ${primary_support:g}~${primary_resist:g} 박스권",
+            "watch": "돌파/이탈 전까진 방향 단정하지 않기.",
+            "rank_bias": 3 if senti == "중립" and not bearish else 2,
+        },
+    ]
 
     if gap_pct is not None and abs(gap_pct) >= 1.5:
         for c in candidates:
             if gap_pct < 0 and c["name"] == "하락 지속":
                 c["rank_bias"] += 2
             elif gap_pct > 0 and c["name"] == "반등 시도":
+                c["rank_bias"] += 2
+    if change_pct is not None and change_pct <= -5:
+        for c in candidates:
+            if c["name"] == "하락 지속":
                 c["rank_bias"] += 2
 
     candidates.sort(key=lambda x: -x["rank_bias"])
@@ -581,14 +610,10 @@ def next_session_scenarios(
     elif earnings and earnings.get("phase") == "임박":
         context = "실적 발표 임박. 방향 단정 대신 변동성·레벨 반응에 주목."
 
-    if not scenarios and not gap_note:
-        return None
-
-    checks: list[str] = []
-    if primary_support is not None:
-        checks.append(f"${primary_support:g} 이탈 여부 (하락 가속 신호)")
-    if primary_resist is not None:
-        checks.append(f"${primary_resist:g} 돌파 여부 (반등 신호)")
+    checks: list[str] = [
+        f"${primary_support:g} 이탈 여부 (하락 가속 신호)",
+        f"${primary_resist:g} 돌파 여부 (반등 신호)",
+    ]
     interest = reclaim or (
         strong_sup
         if strong_sup is not None and primary_support != strong_sup
@@ -597,7 +622,7 @@ def next_session_scenarios(
     if interest is not None and interest not in (primary_support, primary_resist):
         checks.append(f"${interest:g} 도달 시 매수 관심 구간")
 
-    action_hint = " / ".join(checks) if checks else "지지·저항 반응을 먼저 확인하세요."
+    action_hint = " / ".join(checks)
 
     return {
         "reference_spot": spot,

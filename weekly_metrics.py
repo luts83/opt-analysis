@@ -103,46 +103,59 @@ def _proximity_score(predicted, actual) -> int:
 def resistance_result(resistance, actual_high) -> dict | None:
     if resistance is None:
         return None
-    score = _proximity_score(resistance, actual_high)
     if actual_high >= resistance:
         label = f"저항선 돌파! (실제 고가 ${actual_high:g} ≥ 예상 ${resistance:g})"
+        score = 100
     elif actual_high >= resistance * 0.98:
         label = f"저항선 근접 (고가가 예상의 {actual_high/resistance:.0%} 도달)"
+        score = 70
     else:
         gap = (resistance - actual_high) / resistance * 100
         label = f"저항선 미달 ({gap:.1f}% 못 미침)"
+        # 미달은 실패로 취급 — 근접 점수 상한 30
+        score = min(_proximity_score(resistance, actual_high), 30)
     return {"predicted": resistance, "actual_high": actual_high, "score": score, "label": label}
 
 
 def support_result(support, actual_low) -> dict | None:
     if support is None:
         return None
-    score = _proximity_score(support, actual_low)
     if actual_low <= support:
         label = f"지지선 이탈 (실제 저가 ${actual_low:g} ≤ 예상 ${support:g})"
+        score = 0  # 이탈 = 실패
     elif actual_low <= support * 1.02:
         label = f"지지선 근접 (저가가 예상 지지 부근에서 방어)"
+        score = 85
     else:
         gap = (actual_low - support) / support * 100
         label = f"지지선 여유 ({gap:.1f}% 위에서 마감)"
+        score = max(70, _proximity_score(support, actual_low))
     return {"predicted": support, "actual_low": actual_low, "score": score, "label": label}
 
 
 def direction_result(sentiment, weekly_return) -> dict:
-    if sentiment == "강세":
+    # 특수 라벨은 방향 단정으로 보지 않음
+    if sentiment in ("반등 시도 국면", "양방향 극단 베팅", "차익실현/헤지 국면"):
+        match = abs(weekly_return) >= 2  # 큰 움직임이 있으면 '국면 인식' 성공 쪽
+        # 학습용: 특수 라벨은 방향 PASS/FAIL보다 중립에 가깝게
+        score = 60 if match else 40
+        verdict = "특수국면 인식" if match else "특수국면(움직임 작음)"
+    elif sentiment == "강세":
         match = weekly_return > 0
         score = 100 if match else 0
+        verdict = "방향 일치" if match else "방향 불일치"
     elif sentiment == "약세":
         match = weekly_return < 0
         score = 100 if match else 0
+        verdict = "방향 일치" if match else "방향 불일치"
     else:  # 중립
         match = abs(weekly_return) < 2
         score = 100 if match else 40
-    verdict = "방향 일치" if match else "방향 불일치"
+        verdict = "방향 일치" if match else "방향 불일치"
     return {
         "predicted_sentiment": sentiment,
         "weekly_return_pct": weekly_return,
-        "match": match,
+        "match": match if sentiment in ("강세", "약세", "중립") else True,
         "score": score,
         "label": f"{verdict} ({sentiment} 예상, 주간 {weekly_return:+.1f}%)",
     }
@@ -166,18 +179,39 @@ def _grade_letter(score: float) -> str:
         return "B"
     if score >= 80:
         return "B-"
-    if score >= 77:
+    if score >= 75:
         return "C+"
-    if score >= 73:
-        return "C"
     if score >= 70:
+        return "C"
+    if score >= 65:
         return "C-"
-    if score >= 60:
+    if score >= 50:
         return "D"
     return "F"
 
 
+def _item_passed(key: str, res: dict | None) -> bool | None:
+    if res is None:
+        return None
+    if key == "band":
+        return bool(res.get("contained"))
+    if key == "direction":
+        return bool(res.get("match"))
+    if key == "support":
+        al, ps = res.get("actual_low"), res.get("predicted")
+        if al is None or ps is None:
+            return None
+        return al > ps  # 이탈하지 않으면 PASS
+    if key == "resistance":
+        ah, pr = res.get("actual_high"), res.get("predicted")
+        if ah is None or pr is None:
+            return None
+        return ah >= pr  # 도달/돌파만 PASS (미달은 FAIL)
+    return None
+
+
 def composite_grade(band, direction, resistance, support) -> dict:
+    """가중 점수 + 실패 개수 상한(전부 실패면 F≤45)."""
     parts = {
         "band": band,
         "direction": direction,
@@ -186,14 +220,38 @@ def composite_grade(band, direction, resistance, support) -> dict:
     }
     total_w = 0.0
     acc = 0.0
+    passes = 0
+    fails = 0
+    band_passed = False
     for key, res in parts.items():
         if res is None:
             continue
         w = _WEIGHTS[key]
-        acc += res["score"] * w
+        # 밴드 실패 시 부분점수 상한
+        sc = res["score"]
+        if key == "band" and not res.get("contained"):
+            sc = min(sc, 35)
+        acc += sc * w
         total_w += w
+        ok = _item_passed(key, res)
+        if ok is True:
+            passes += 1
+            if key == "band":
+                band_passed = True
+        elif ok is False:
+            fails += 1
     score = round(acc / total_w) if total_w else 0
-    return {"score": score, "grade": _grade_letter(score)}
+
+    # 루브릭: 전부 실패 ≤45(F), 3실패+밴드성공 ≈75(C+), 3실패 그 외 60대(C-)
+    if fails >= 4 or (passes == 0 and fails >= 3):
+        score = min(score, 45)
+    elif fails == 3:
+        if band_passed:
+            score = 75  # C+ 부근
+        else:
+            score = min(max(score, 60), 68)
+
+    return {"score": score, "grade": _grade_letter(score), "passes": passes, "fails": fails}
 
 
 def build_weekly(ticker: str, prediction: dict, ohlc: dict) -> dict:

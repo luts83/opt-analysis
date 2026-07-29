@@ -25,8 +25,12 @@ def polish_narrative(text: str) -> str:
         "",
         t,
     )
-    # 더 단순한 뉴스 블록 제거 (이모지 클래스 실패 대비)
     t = re.sub(r"(?m)^📰.*?(?=^🎯|^⚠️ 이 리포트|\Z)", "", t, flags=re.S)
+
+    # LLM이 넣은 마크다운 링크 → plain URL / 텍스트
+    t = re.sub(r"\[([^\]]*)\]\((https?://[^)]+)\)", r"\1\n  \2", t)
+    t = re.sub(r"\[(https?://[^\]]+)\]\((https?://[^)]+)\)", r"\1", t)
+    t = t.replace("\ufffc", "")
 
     # 연속 빈 줄 압축
     t = re.sub(r"\n{3,}", "\n\n", t)
@@ -46,3 +50,33 @@ def inject_news_once(narrative: str, news_block: str) -> str:
     if disclaimer in text:
         return text.replace(disclaimer, block + "\n" + disclaimer, 1)
     return text.rstrip() + "\n\n" + block + "\n"
+
+
+def enforce_scenarios(narrative: str, next_session: dict | None) -> str:
+    """LLM이 시나리오를 1줄만 쓴 경우, 시스템 시나리오 3개로 교체."""
+    if not next_session or not next_session.get("scenarios"):
+        return narrative
+    scenarios = next_session["scenarios"]
+    if len(scenarios) < 2:
+        return narrative
+
+    title = next_session.get("section_title") or "🔮 시나리오 (가능성 순)"
+    block_lines = [title]
+    if next_session.get("gap_note"):
+        block_lines.append(next_session["gap_note"])
+    for s in scenarios:
+        block_lines.append(f"- {s['name']}: {s['condition']}")
+        if s.get("watch"):
+            block_lines.append(f"  → {s['watch']}")
+    block = "\n".join(block_lines) + "\n"
+
+    # 기존 시나리오 섹션 교체
+    pat = re.compile(
+        r"(?m)^🔮[^\n]*\n(?:.*?\n)*?(?=^⚠️ 오늘|^🎯 |^📰|^⚠️ 이 리포트|\Z)",
+    )
+    if pat.search(narrative):
+        return pat.sub(block + "\n", narrative, count=1)
+    # 없으면 체크포인트 앞에 삽입
+    if "🎯 오늘 체크포인트" in narrative:
+        return narrative.replace("🎯 오늘 체크포인트", block + "\n🎯 오늘 체크포인트", 1)
+    return narrative.rstrip() + "\n\n" + block

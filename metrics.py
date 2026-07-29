@@ -119,7 +119,22 @@ def call_put_volume_ratio(data: dict) -> tuple[float | None, int, int]:
     return ratio, call_vol, put_vol
 
 
-def sentiment_from_ratio(ratio: float | None) -> str:
+def sentiment_from_ratio(
+    ratio: float | None,
+    change_pct: float | None = None,
+    *,
+    both_side_extreme: bool = False,
+) -> str:
+    """C/P 비율 + 주가 변동으로 시장 온도 라벨.
+
+    급락(-5%↓) 중 C/P 상승은 '강세'가 아니라 반등/양방향 베팅으로 본다.
+    """
+    if both_side_extreme and change_pct is not None and abs(change_pct) >= 5:
+        return "양방향 극단 베팅"
+    if change_pct is not None and change_pct <= -5 and ratio is not None and ratio >= 1.2:
+        return "반등 시도 국면"
+    if change_pct is not None and change_pct >= 5 and ratio is not None and ratio <= 0.83:
+        return "차익실현/헤지 국면"
     if ratio is None:
         return "중립"
     if ratio >= 1.2:
@@ -127,6 +142,21 @@ def sentiment_from_ratio(ratio: float | None) -> str:
     if ratio <= 0.83:
         return "약세"
     return "중립"
+
+
+def detect_both_side_oi_surge(anomalies: list[dict] | None) -> bool:
+    """콜·풋 OI 대량 유입이 동시에 있으면 True."""
+    if not anomalies:
+        return False
+    call_up = any(
+        a.get("type") == "OI_SURGE" and str(a.get("option_type", "")).upper() == "CALL"
+        for a in anomalies
+    )
+    put_up = any(
+        a.get("type") == "OI_SURGE" and str(a.get("option_type", "")).upper() == "PUT"
+        for a in anomalies
+    )
+    return call_up and put_up
 
 
 # ------------------------------------------------------------------ #
@@ -251,6 +281,10 @@ def build_base_metrics(
     """오늘 데이터로 지표 계산. oi_available=False 면 OI 지표 폴백/생략."""
     spot = data["spot"]
     ratio, call_vol, put_vol = call_put_volume_ratio(data)
+    prev_close = data.get("previous_close")
+    change_pct = None
+    if prev_close and spot is not None and float(prev_close) > 0:
+        change_pct = round((float(spot) - float(prev_close)) / float(prev_close) * 100, 2)
 
     prev_em = (prev or {}).get("metrics", {}).get("expiry_metrics", {})
 
@@ -296,10 +330,18 @@ def build_base_metrics(
 
     voi_candidates.sort(key=lambda x: x["voi"], reverse=True)
 
+    senti = sentiment_from_ratio(ratio, change_pct)
     return {
         "call_put_volume_ratio": round(ratio, 3) if ratio is not None else None,
-        "sentiment": sentiment_from_ratio(ratio),
-        "sentiment_rule": "콜/풋 볼륨비 >=1.2 강세 / <=0.83 약세 / 그 외 중립",
+        "sentiment": senti,
+        "sentiment_raw": sentiment_from_ratio(ratio),  # C/P만 본 순수 라벨
+        "price_change_pct": change_pct,
+        "sentiment_tags": [],
+        "sentiment_rule": (
+            "콜/풋>=1.2 강세 / <=0.83 약세. "
+            "단 급락(-5%↓)+고C/P는 '반등 시도 국면', "
+            "콜·풋 OI 동시 유입은 '양방향 극단 베팅'+변동성 확대"
+        ),
         "total_call_volume": call_vol,
         "total_put_volume": put_vol,
         "total_volume": _total_volume(data),
@@ -310,6 +352,20 @@ def build_base_metrics(
         "top_call_volume": _volume_rank(call_vol_rows, config.TOP_VOLUME_N),
         "top_put_volume": _volume_rank(put_vol_rows, config.TOP_VOLUME_N),
     }
+
+
+def apply_sentiment_tags(base: dict, anomalies: list[dict] | None) -> dict:
+    """OI 양방향 급변 등을 반영해 sentiment / tags 보정."""
+    change_pct = base.get("price_change_pct")
+    ratio = base.get("call_put_volume_ratio")
+    tags: list[str] = list(base.get("sentiment_tags") or [])
+    if detect_both_side_oi_surge(anomalies):
+        tags.append("변동성 확대 예상")
+        base["sentiment"] = sentiment_from_ratio(
+            ratio, change_pct, both_side_extreme=True
+        )
+    base["sentiment_tags"] = tags
+    return base
 
 
 # ------------------------------------------------------------------ #
@@ -541,6 +597,12 @@ def build_day_over_day(data: dict, base: dict, prev: dict | None) -> dict | None
     senti_t, senti_p = base.get("sentiment"), prev_m.get("sentiment")
     if senti_t and senti_p and senti_t != senti_p:
         unusual.append(f"심리 전환: {senti_p} → {senti_t}")
+    elif senti_t and senti_t not in ("강세", "약세", "중립"):
+        # 급락+고C/P 등 특수 라벨은 전환이 없어도 표시
+        unusual.append(f"심리: {senti_t}")
+    for tag in base.get("sentiment_tags") or []:
+        if tag not in unusual:
+            unusual.append(tag)
     if band_delta is not None and abs(band_delta) >= 1.0:
         unusual.append(
             f"예상 변동폭 {st_p.get('band_pct')}% → {st_t.get('band_pct')}% ({band_delta:+}%p)"

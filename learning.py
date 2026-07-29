@@ -116,7 +116,10 @@ def daily_ohlc(ticker: str, day: dt.date | None = None) -> dict | None:
 
 
 def find_missed_signals(prev_snap: dict, results: dict) -> list[str]:
-    """빗나간 항목이 있을 때 어제 스냅샷에서 놓친 강한 시그널을 찾는다."""
+    """빗나간 항목이 있을 때 어제 스냅샷에서 놓친 강한 시그널을 찾는다.
+
+    결과는 '놓친 강세 신호'가 아니라 '주목했어야 할 이상치 + 실제 결과'로 표기한다.
+    """
     missed: list[str] = []
     band = results.get("band") or {}
     support = results.get("support") or {}
@@ -133,21 +136,36 @@ def find_missed_signals(prev_snap: dict, results: dict) -> list[str]:
     if not failed:
         return missed
 
-    # 하락 날이면 풋·OI 하락 신호를 콜 V/OI보다 우선
+    ret = direction.get("weekly_return_pct")
     prefer_put = False
     if support and support.get("actual_low") is not None and support.get("predicted"):
         if support["actual_low"] <= support["predicted"]:
             prefer_put = True
-    wr = direction.get("weekly_return_pct")
-    if wr is not None and float(wr) < -1:
+    if ret is not None and float(ret) < -1:
         prefer_put = True
+
+    def _outcome_note(opt_type: str) -> str:
+        if ret is None:
+            return ""
+        r = float(ret)
+        t = str(opt_type).upper()
+        if r <= -2 and t in ("CALL", "C", "콜"):
+            return f" → 결과: 상승 아닌 급락({r:+.1f}%) · 콜 매도/헤지 물량 가능"
+        if r >= 2 and t in ("PUT", "P", "풋"):
+            return f" → 결과: 하락 아닌 상승({r:+.1f}%) · 풋 매도/헤지 가능"
+        if r <= -2:
+            return f" → 결과: 급락({r:+.1f}%)"
+        if r >= 2:
+            return f" → 결과: 상승({r:+.1f}%)"
+        return f" → 결과: {r:+.1f}%"
 
     for a in prev_snap.get("anomalies") or []:
         chg = a.get("change_pct")
         if chg is None:
             continue
         if abs(float(chg)) >= _EXTREME_OI_PCT:
-            missed.append(a.get("message") or f"OI 급변 {chg:+.0f}%")
+            msg = a.get("message") or f"OI 급변 {chg:+.0f}%"
+            missed.append(msg + _outcome_note(a.get("option_type") or ""))
 
     voi_puts: list[str] = []
     voi_calls: list[str] = []
@@ -158,6 +176,7 @@ def find_missed_signals(prev_snap: dict, results: dict) -> list[str]:
         line = (
             f"{r.get('expiry')} {r.get('type')} ${r.get('strike'):g} "
             f"V/OI {voi} ({r.get('class')})"
+            + _outcome_note(r.get("type") or "")
         )
         if str(r.get("type", "")).upper() in ("PUT", "P", "풋"):
             voi_puts.append(line)
@@ -170,7 +189,6 @@ def find_missed_signals(prev_snap: dict, results: dict) -> list[str]:
         missed.extend(voi_calls)
         missed.extend(voi_puts)
 
-    # 중복 제거, 상위 5개
     seen: set[str] = set()
     out: list[str] = []
     for m in missed:
@@ -187,16 +205,25 @@ def build_lesson(missed: list[str], results: dict) -> str | None:
         return None
     band = results.get("band") or {}
     support = results.get("support") or {}
+    direction = results.get("direction") or {}
+    ret = direction.get("weekly_return_pct")
     tips: list[str] = []
     if any("OI" in m and ("+" in m or "유입" in m) for m in missed):
         tips.append(f"OI +{_EXTREME_OI_PCT:.0f}% 이상 급변은 최우선 강조 필요")
-    if any("V/OI" in m for m in missed):
-        tips.append(f"V/OI {_HOT_VOI}+ (극단) 계약을 지지/저항보다 먼저 언급")
+    call_extreme_but_drop = any(
+        "CALL" in m.upper() and "V/OI" in m and "급락" in m for m in missed
+    )
+    if call_extreme_but_drop:
+        tips.append("콜 V/OI 극단≠강세 — 급락 시 콜 매도 물량 가능성부터 검토")
+    elif any("V/OI" in m for m in missed):
+        tips.append(f"V/OI {_HOT_VOI}+ 계약은 방향(매수/매도) 해석과 함께 언급")
     if band and not band.get("contained"):
         tips.append("밴드 이탈 시 풋/콜 OI 급변 신호를 함께 재검토")
     if support and support.get("actual_low") is not None and support.get("predicted"):
         if support["actual_low"] <= support["predicted"]:
             tips.append("단기 지지 이탈 가능성 — 아래 강한 지지(OI)를 같이 제시")
+    if ret is not None and float(ret) <= -5:
+        tips.append("급락일엔 C/P 상승을 강세로 읽지 말 것(반등 시도/양방향 베팅)")
     if not tips and missed:
         tips.append("어제 강한 이상신호가 있었는데 본문에서 비중을 키울 것")
     return " / ".join(tips) if tips else None
@@ -310,7 +337,7 @@ def grade_yesterday(
                 and resistance.get("actual_high") is not None
                 and resistance.get("predicted") is not None
                 and resistance["actual_high"] >= resistance["predicted"]
-                else ("NEAR/MISS" if resistance else "N/A")
+                else ("FAIL" if resistance else "N/A")
             ),
             "direction": "PASS" if direction and direction.get("match") else "FAIL",
             "summary": " / ".join(accuracy_summary),
@@ -363,8 +390,8 @@ def format_feedback_section(fb: dict | None) -> str:
     resistance = results.get("resistance") or {}
     if acc.get("resistance") == "HIT":
         L.append("✅ 저항선 도달/돌파")
-    elif resistance.get("predicted") is not None:
-        L.append(f"⚪ 저항선 미달 (예상 ${resistance['predicted']:g})")
+    elif acc.get("resistance") == "FAIL" or resistance.get("predicted") is not None:
+        L.append(f"❌ 저항선 미달 (예상 ${resistance['predicted']:g})" if resistance.get("predicted") is not None else "❌ 저항선 미달")
 
     direction = results.get("direction") or {}
     senti = pred.get("sentiment") or direction.get("predicted_sentiment")
@@ -384,11 +411,9 @@ def format_feedback_section(fb: dict | None) -> str:
     if missed or lesson:
         top = missed[0] if missed else None
         if top:
-            # 짧게
-            short = top if len(top) <= 60 else top[:57] + "..."
-            L.append(f"💡 놓친 신호: {short}")
+            short = top if len(top) <= 110 else top[:107] + "..."
+            L.append(f"💡 주목 신호: {short}")
         if lesson:
-            # 첫 교훈만
             tip = lesson.split(" / ")[0]
             L.append(f"→ 다음부터: {tip}")
     L.append("")

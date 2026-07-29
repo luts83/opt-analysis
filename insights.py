@@ -124,8 +124,10 @@ def build_friendly_fallback(
     if cpr:
         up = round(cpr / (1 + cpr) * 100)
         caveat = " (어닝 — 참고용)" if in_earnings else ""
+        tags = base.get("sentiment_tags") or []
+        tag_s = f" · {', '.join(tags)}" if tags else ""
         L.append("🌡️ 시장 온도")
-        L.append(f"상승 베팅 ~{up}% / 하락 ~{100 - up}% → '{senti}'{caveat}")
+        L.append(f"상승 베팅 ~{up}% / 하락 ~{100 - up}% → '{senti}'{caveat}{tag_s}")
         L.append("")
 
     if base.get("oi_source") and "전일" in str(base.get("oi_source")):
@@ -229,6 +231,7 @@ def build_narrative(
         src = "rule"
 
     text = report_polish.polish_narrative(text)
+    text = report_polish.enforce_scenarios(text, (eventinfo or {}).get("next_session"))
     text = events.with_linked_news(text, eventinfo)
     text = market_clock.apply_session_to_narrative(text, data, eventinfo)
 
