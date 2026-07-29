@@ -415,16 +415,18 @@ def build_levels(base: dict, spot: float) -> dict:
         for p in put_oi[:2]
     ]
 
-    # 단기: 현재가 근처(±8%) 거래량 상위
-    lo, hi = spot * 0.92, spot * 1.08
-    near_puts = [
-        r for r in (base.get("top_put_volume") or [])
-        if lo <= r["strike"] <= spot * 1.01
-    ]
-    near_calls = [
-        r for r in (base.get("top_call_volume") or [])
-        if spot * 0.99 <= r["strike"] <= hi
-    ]
+    # 단기: 현재가 아래 가장 가까운 풋 / 위 가장 가까운 콜 (거래량 상위 풀)
+    puts = sorted(
+        [r for r in (base.get("top_put_volume") or []) if r["strike"] <= spot * 1.01],
+        key=lambda r: -r["strike"],
+    )
+    calls = sorted(
+        [r for r in (base.get("top_call_volume") or []) if r["strike"] >= spot * 0.99],
+        key=lambda r: r["strike"],
+    )
+    # ±12% 안을 우선, 없으면 가장 가까운 것
+    near_puts = [r for r in puts if r["strike"] >= spot * 0.88] or puts[:1]
+    near_calls = [r for r in calls if r["strike"] <= spot * 1.12] or calls[:1]
     near_support = (
         [{"strike": near_puts[0]["strike"], "volume": near_puts[0]["volume"],
           "kind": "단기지지", "basis": "현재가 근처 풋 거래 집중"}]
@@ -453,18 +455,27 @@ def build_band_trend(base: dict) -> dict | None:
     """이번주/다음주/월간 상·하단 확장을 한 줄로 해석."""
     em = base.get("expiry_metrics") or {}
     rows = []
-    for role, label in (("this_week", "이번주"), ("next_week", "다음주"), ("monthly", "월간")):
+    for role, label in (("this_week", "이번주"), ("next_week", "2주내"), ("monthly", "1개월")):
         st = (em.get(role) or {}).get("straddle")
         if not st:
             continue
+        lo, up = st.get("lower"), st.get("upper")
+        # 표시용 반올림
+        if lo is not None:
+            lo = round(float(lo))
+        if up is not None:
+            up = round(float(up))
+        bp = st.get("band_pct")
+        if bp is not None:
+            bp = round(float(bp))
         rows.append(
             {
                 "role": role,
                 "label": label,
                 "date": (em.get(role) or {}).get("date"),
-                "lower": st.get("lower"),
-                "upper": st.get("upper"),
-                "band_pct": st.get("band_pct"),
+                "lower": lo,
+                "upper": up,
+                "band_pct": bp,
             }
         )
     if len(rows) < 2:
@@ -480,24 +491,13 @@ def build_band_trend(base: dict) -> dict | None:
         and last["lower"] < first["lower"]
     )
     if upper_expand and lower_expand:
-        interpretation = (
-            f"시간이 지날수록 예상 범위가 양쪽으로 넓어져요. "
-            f"단기 상단 ${first['upper']:g} → 장기 상단 ${last['upper']:g}, "
-            f"하단은 ${first['lower']:g} → ${last['lower']:g}."
-        )
+        interpretation = "→ 시간 갈수록 상·하방 모두 위험 구간이 넓어짐"
     elif upper_expand:
-        interpretation = (
-            f"만기가 멀수록 상단이 더 열려 있어요 "
-            f"(${first['upper']:g} → ${last['upper']:g}). 중기 상방 시나리오가 더 큼."
-        )
+        interpretation = "→ 만기가 멀수록 상방 시나리오가 더 열림"
     elif lower_expand:
-        interpretation = (
-            f"만기가 멀수록 하단이 더 열려 있어요 "
-            f"(${first['lower']:g} → ${last['lower']:g}). 중기 하방 리스크 구간이 넓음."
-        )
+        interpretation = "→ 시간 갈수록 하방 위험 확대"
     else:
-        interpretation = "만기별로 상·하단이 크게 벌어지지 않아, 단기 컨센서스가 비교적 좁아요."
-
+        interpretation = "→ 만기별 컨센서스가 비교적 좁음"
     return {"rows": rows, "interpretation": interpretation}
 
 
@@ -529,24 +529,22 @@ def build_day_over_day(data: dict, base: dict, prev: dict | None) -> dict | None
     if st_t.get("band_pct") is not None and st_p.get("band_pct") is not None:
         band_delta = round(st_t["band_pct"] - st_p["band_pct"], 2)
 
-    highlights: list[str] = []
-    if spot_chg is not None:
-        highlights.append(f"주가 {prev_spot} → {spot} ({spot_chg:+.1f}%)")
+    # 특이사항만 (비슷/유지는 노이즈 → 제외)
+    unusual: list[str] = []
+    if spot_chg is not None and abs(spot_chg) >= 3.0:
+        unusual.append(f"주가 급변 {prev_spot} → {spot} ({spot_chg:+.1f}%)")
     if vol_mult is not None:
         if vol_mult >= 1.5:
-            highlights.append(f"옵션 거래량 급증 (어제 대비 {vol_mult}배: {vol_p:,} → {vol_t:,})")
+            unusual.append(f"옵션 거래량 급증 (어제 대비 {vol_mult}배: {vol_p:,} → {vol_t:,})")
         elif vol_mult <= 0.7:
-            highlights.append(f"옵션 거래량 감소 (어제 대비 {vol_mult}배: {vol_p:,} → {vol_t:,})")
-        else:
-            highlights.append(f"옵션 거래량 비슷 (어제 대비 {vol_mult}배)")
+            unusual.append(f"옵션 거래량 급감 (어제 대비 {vol_mult}배: {vol_p:,} → {vol_t:,})")
     senti_t, senti_p = base.get("sentiment"), prev_m.get("sentiment")
-    if senti_t and senti_p:
-        if senti_t != senti_p:
-            highlights.append(f"심리 전환: {senti_p} → {senti_t}")
-        else:
-            highlights.append(f"심리 유지: {senti_t}")
-    if band_delta is not None:
-        highlights.append(f"예상 변동폭(밴드) {st_p.get('band_pct')}% → {st_t.get('band_pct')}% ({band_delta:+}%p)")
+    if senti_t and senti_p and senti_t != senti_p:
+        unusual.append(f"심리 전환: {senti_p} → {senti_t}")
+    if band_delta is not None and abs(band_delta) >= 1.0:
+        unusual.append(
+            f"예상 변동폭 {st_p.get('band_pct')}% → {st_t.get('band_pct')}% ({band_delta:+}%p)"
+        )
 
     return {
         "available": True,
@@ -556,5 +554,6 @@ def build_day_over_day(data: dict, base: dict, prev: dict | None) -> dict | None
         "sentiment_today": senti_t,
         "sentiment_prev": senti_p,
         "band_delta_pp": band_delta,
-        "highlights": highlights,
+        "highlights": unusual,  # 특이사항만
+        "has_unusual": bool(unusual),
     }

@@ -8,50 +8,88 @@ from __future__ import annotations
 import events
 
 
-def _level_lines(levels: dict | None) -> list[str]:
+def _level_block(levels: dict | None) -> list[str]:
+    """지지/저항을 대칭 구조로."""
     if not levels:
         return ["- 데이터 없음"]
     L: list[str] = []
-    for key, emoji, label in (
-        ("strong_support", "🟢", "강한 지지"),
-        ("near_support", "🟢", "단기 지지"),
-        ("near_resistance", "🔴", "단기 저항"),
-        ("strong_resistance", "🔴", "강한 저항"),
-    ):
+
+    def _items(key: str) -> list[str]:
+        out = []
         for item in levels.get(key) or []:
             strike = item["strike"]
-            if "oi" in item and item["oi"]:
-                L.append(
-                    f"{emoji} {label}: ${strike:g} ⭐ — "
-                    f"옵션 시장에 이 가격 계약이 {item['oi']:,}개 몰려 있어요. "
-                    f"마치 ${strike:g} 가격표를 든 대기자 {item['oi']:,}명이 있는 셈이에요."
-                )
-            elif "volume" in item:
-                L.append(
-                    f"{emoji} {label}: ${strike:g} — "
-                    f"현재가 근처에서 거래가 {item['volume']:,}건 몰린 심리적 레벨이에요."
-                )
-    return L or ["- 데이터 없음"]
+            if item.get("oi"):
+                out.append(f"${strike:g} (계약 {item['oi']:,}개 대기)")
+            elif item.get("volume"):
+                out.append(f"${strike:g} (거래 {item['volume']:,})")
+            else:
+                out.append(f"${strike:g}")
+        return out
+
+    L.append("🟢 지지선")
+    strong_s = _items("strong_support")
+    near_s = _items("near_support")
+    if strong_s:
+        L.append(f"- 강한: {', '.join(strong_s)}")
+    if near_s:
+        L.append(f"- 단기: {', '.join(near_s)}")
+    if not strong_s and not near_s:
+        L.append("- (없음)")
+
+    L.append("🔴 저항선")
+    near_r = _items("near_resistance")
+    strong_r = _items("strong_resistance")
+    if near_r:
+        L.append(f"- 단기: {', '.join(near_r)}")
+    if strong_r:
+        L.append(f"- 강한: {', '.join(strong_r)}")
+    if not near_r and not strong_r:
+        L.append("- (없음)")
+    return L
+
+
+def _one_liner(data, base, eventinfo) -> str:
+    ticker = data.get("ticker", "")
+    levels = base.get("levels") or {}
+    spot = data.get("spot")
+    senti = base.get("sentiment")
+    strong = (levels.get("strong_support") or [{}])[0].get("strike")
+    near_s = (levels.get("near_support") or [{}])[0].get("strike")
+    near_r = (levels.get("near_resistance") or [{}])[0].get("strike")
+    earn = (eventinfo or {}).get("earnings") or {}
+    if earn.get("phase") in ("임박", "직후"):
+        return f"{ticker} 실적 {earn.get('phase')} — 변동성·레벨 반응 우선"
+    chg = ((eventinfo or {}).get("price") or {}).get("change_pct")
+    if chg is not None and chg <= -3 and strong:
+        return f"{ticker} 급락 ${strong:g} 지지선 테스트 임박"
+    if chg is not None and chg >= 3 and near_r:
+        return f"{ticker} 급등 ${near_r:g} 저항 테스트"
+    if senti == "약세" and near_s:
+        return f"{ticker} 약세 — ${near_s:g} 지지 이탈 여부 주시"
+    if senti == "강세" and near_r:
+        return f"{ticker} 강세 — ${near_r:g} 돌파 여부 주시"
+    if strong and spot:
+        return f"{ticker} ${spot:g} — 핵심 레벨 ${strong:g} 주시"
+    return f"{ticker} 옵션 시장 요약"
 
 
 def build_friendly_fallback(
     data, base, anomalies, volume_anomaly, prev, eventinfo=None, day_over_day=None,
     feedback=None, learning_context=None,
 ) -> str:
-    """LLM 없이도 읽히는 친근한 리포트(규칙 기반). 섹션 순서 고정."""
+    """LLM 없이도 읽히는 짧은 리포트(규칙 기반)."""
     import learning
+    import market_clock
 
-    spot = data["spot"]
-    prev_close = data.get("previous_close")
     earn = (eventinfo or {}).get("earnings") or {}
     in_earnings = earn.get("phase") in ("임박", "직후")
     senti = base.get("sentiment")
     near = base["expiry_metrics"].get("this_week") or next(
         iter(base["expiry_metrics"].values())
     )
+    nxt = (eventinfo or {}).get("next_session") or {}
 
     L: list[str] = []
-    # 0) 어제 예측 피드백
     fb_text = learning.format_feedback_section(feedback or data.get("prediction_feedback"))
     if fb_text:
         L.append(fb_text.rstrip())
@@ -59,129 +97,98 @@ def build_friendly_fallback(
 
     L.append(f"📊 오늘의 {data['ticker']} 옵션 시장 이야기 - {data['date']}")
     L.append("")
-
-    # 1) 한 줄 요약
-    mood = {"강세": "상승 쪽에 기대가 큰", "약세": "하락을 걱정하는", "중립": "관망하는"}.get(
-        senti, ""
-    )
-    L.append("🎯 한 줄 요약")
-    if in_earnings:
-        sur = earn.get("surprise_pct")
-        sur_s = f" (EPS 서프라이즈 {sur:+.1f}%)" if sur is not None else ""
-        L.append(
-            f"지금은 실적 발표 {earn.get('phase')} 국면이에요{sur_s}. "
-            f"콜/풋 비율상 '{senti}'처럼 보이지만 어닝 전후엔 단정하지 마세요."
-        )
-    else:
-        L.append(
-            f"오늘 시장은 {mood} 분위기예요. (콜/풋 비율 {base.get('call_put_volume_ratio')})"
-        )
+    L.append(f"🎯 {_one_liner(data, base, eventinfo)}")
     L.append("")
-
-    # 2) 주가 (미국 ET 세션별 라벨)
-    import market_clock
-
     L.append(market_clock.format_price_line(data))
     L.append("")
 
-    # 3) 이벤트
-    if earn and earn.get("message"):
+    # 이벤트 — 있을 때만
+    if in_earnings and earn.get("message"):
+        L.append("🚨 이벤트 경고")
         L.append(earn["message"])
         L.append("")
     price = (eventinfo or {}).get("price") or {}
-    if price.get("note"):
-        L.append(f"💱 가격 주의: {price['note']}")
+    if price.get("abnormal") and price.get("note"):
+        L.append("🚨 이벤트 경고")
+        L.append(price["note"])
         L.append("")
 
-    # 4) 시장 온도
     cpr = base.get("call_put_volume_ratio")
     if cpr:
         up = round(cpr / (1 + cpr) * 100)
-        caveat = " (어닝 국면 — 참고용, 단정 금지)" if in_earnings else ""
+        caveat = " (어닝 — 참고용)" if in_earnings else ""
         L.append("🌡️ 시장 온도")
-        L.append(
-            f"오늘 옵션 거래에서 약 100명 중 {up}명은 상승, {100 - up}명은 하락에 걸었어요. "
-            f"→ 분위기는 '{senti}'{caveat}."
-        )
+        L.append(f"상승 베팅 ~{up}% / 하락 ~{100 - up}% → '{senti}'{caveat}")
         L.append("")
 
-    # 5) 지지/저항
     if base.get("oi_source") and "전일" in str(base.get("oi_source")):
-        L.append("※ 아래 강한 지지/저항 OI는 오늘 미갱신이라 '전일 기준'이에요.")
+        L.append("※ 강한 지지/저항 OI는 전일 기준.")
         L.append("")
-    L.append("🟢🔴 지지선 / 저항선")
-    L.extend(_level_lines(base.get("levels")))
+    L.extend(_level_block(base.get("levels")))
     L.append("")
 
-    # 6) 예상 범위 + 밴드 트렌드
+    bt = base.get("band_trend") or {}
+    rows = bt.get("rows") or []
+    if not rows:
+        import metrics as _m
+        bt = _m.build_band_trend(base) or {}
+        rows = bt.get("rows") or []
     st = near.get("straddle")
-    if st:
-        L.append("📈 이번주 예상 범위")
-        L.append(
-            f"옵션 가격을 역산한 시장의 예상: **${st['lower']} ~ ${st['upper']}** "
-            f"(±{st['band_pct']}%)."
-        )
-        bt = base.get("band_trend") or {}
+    if rows or st:
+        L.append("📈 예상 범위")
+        if rows:
+            for r in rows:
+                L.append(
+                    f"{r['label']}: ${r['lower']}~${r['upper']} (±{r['band_pct']}%)"
+                )
+        elif st:
+            L.append(
+                f"이번주: ${round(float(st['lower']))}~${round(float(st['upper']))} "
+                f"(±{round(float(st['band_pct']))}%)"
+            )
         if bt.get("interpretation"):
-            L.append(f"💡 {bt['interpretation']}")
+            tip = bt["interpretation"]
+            if not tip.startswith("→"):
+                tip = f"→ {tip}"
+            L.append(tip)
         L.append("")
 
-    # 7) 시나리오 (장중이면 '남은 장중', 그 외 '다음 장 개장')
-    nxt = (eventinfo or {}).get("next_session") or {}
-    if nxt:
-        L.append(nxt.get("section_title") or "🔮 다음 장 개장 시나리오")
+    if nxt.get("scenarios"):
+        L.append(nxt.get("section_title") or "🔮 시나리오 (가능성 순)")
         if nxt.get("gap_note"):
             L.append(nxt["gap_note"])
-        for s in nxt.get("scenarios") or []:
+        for s in nxt["scenarios"]:
             L.append(f"- {s['name']}: {s['condition']}")
-            L.append(f"  → {s['watch']}")
-        if nxt.get("action_hint"):
-            L.append(f"※ {nxt['action_hint']}")
+            if s.get("watch"):
+                L.append(f"  → {s['watch']}")
         L.append("")
 
-    # 8) 특이 / 어제대비
-    L.append("⚠️ 오늘 특이한 일")
-    noted = False
+    # 특이사항 — 진짜 특이만
+    unusual: list[str] = []
     if day_over_day and day_over_day.get("highlights"):
-        for h in day_over_day["highlights"]:
-            L.append(f"- {h}")
-        noted = True
-    elif day_over_day and day_over_day.get("note"):
-        L.append(f"- {day_over_day['note']}")
-        noted = True
+        unusual.extend(day_over_day["highlights"])
     if volume_anomaly and volume_anomaly.get("is_anomaly"):
-        L.append(
-            f"- 거래량이 평소({int(volume_anomaly['recent_avg']):,}건)의 "
-            f"{volume_anomaly['mult']}배!"
+        unusual.append(
+            f"거래량 이상: 평소 대비 {volume_anomaly['mult']}배"
         )
-        noted = True
     for a in (anomalies or [])[:4]:
-        L.append(f"- {a['message']}")
-        noted = True
-    if not noted:
-        L.append("- 특별히 눈에 띄는 급변 신호는 없어요.")
-    L.append("")
-
-    # 9) 뉴스
-    news = (eventinfo or {}).get("news") or []
-    if news:
-        L.append("📰 관련 뉴스")
-        L.extend(events.format_news_lines(news, limit=4))
+        unusual.append(a["message"])
+    if unusual:
+        L.append("⚠️ 오늘 특이한 일")
+        for u in unusual:
+            L.append(f"- {u}")
         L.append("")
 
-    # 10) 액션
-    L.append("🎯 그래서 뭘 해야 하나")
-    if in_earnings:
-        L.append("- 실적 발표 전후예요. 변동성이 크니 지지/저항 반응을 우선 보세요.")
-    if nxt.get("action_hint"):
-        L.append(f"- {nxt['action_hint']}")
-    levels = base.get("levels") or {}
-    if levels.get("strong_support"):
-        s = levels["strong_support"][0]
-        L.append(f"- 보유 중이면 강한 지지 ${s['strike']:g}이 지켜지는지 보세요.")
-    if levels.get("strong_resistance"):
-        r = levels["strong_resistance"][0]
-        L.append(f"- 강한 저항 ${r['strike']:g} 근처에서는 매도 압력을 염두에 두세요.")
+    L.append("🎯 오늘 체크포인트")
+    checks = nxt.get("checkpoints") or []
+    if checks:
+        for c in checks:
+            L.append(f"- {c}")
+    elif nxt.get("action_hint"):
+        for part in str(nxt["action_hint"]).split(" / "):
+            L.append(f"- {part.strip()}")
+    else:
+        L.append("- 지지·저항 반응을 먼저 확인하세요.")
     L.append("")
     L.append("⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다.")
     return "\n".join(L)
@@ -195,6 +202,8 @@ def build_narrative(
     import llm
     import market_clock
     import learning
+    import re
+    import report_polish
 
     fb = feedback if feedback is not None else data.get("prediction_feedback")
     ctx = learning_context if learning_context is not None else data.get("learning_context")
@@ -211,10 +220,22 @@ def build_narrative(
             feedback=fb, learning_context=ctx,
         )
         src = "rule"
+
+    text = report_polish.polish_narrative(text)
     text = events.with_linked_news(text, eventinfo)
     text = market_clock.apply_session_to_narrative(text, data, eventinfo)
-    # LLM 이 피드백 섹션을 빼먹어도 상단에 강제 삽입
+
+    # 채점 블록은 항상 시스템 포맷으로 교체/삽입
     fb_block = learning.format_feedback_section(fb)
-    if fb_block and "어제 예측 vs 오늘 실제" not in text:
-        text = fb_block + "\n" + text
+    if fb_block:
+        # 기존 채점/어제예측 섹션 제거 후 상단 삽입
+        text = re.sub(
+            r"(?m)^📊\s*(직전 리포트 채점|어제 예측 vs 오늘 실제).*?(?=^📊 오늘의|\Z)",
+            "",
+            text,
+            count=1,
+            flags=re.S,
+        )
+        text = fb_block + "\n" + text.lstrip()
+
     return text, src

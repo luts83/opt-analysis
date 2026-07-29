@@ -72,7 +72,7 @@ def action_hint_prefix(market_session: str) -> str:
 
 
 def format_price_line(data: dict) -> str:
-    """세션별 💰 가격 정보 블록(정규장 → 애프터 → 프리)."""
+    """세션별 💰 가격 블록 — 기준(전일/종가)을 명시."""
     ms = data.get("market_session") or get_market_session()
     spot = data.get("spot")
     prev = data.get("previous_close")
@@ -84,47 +84,53 @@ def format_price_line(data: dict) -> str:
         if v is None:
             return "-"
         try:
-            return f"${float(v):g}"
+            return f"${float(v):.2f}".rstrip("0").rstrip(".")
         except (TypeError, ValueError):
             return str(v)
 
-    # pcts 계산 기준(정규장 가격이 최우선)
-    base_pct = regular if regular is not None else prev if prev is not None else spot
-    if base_pct is None:
-        base_pct = spot
+    def _pct(a, b) -> str | None:
+        try:
+            if a is None or b is None or float(b) == 0:
+                return None
+            return f"{(float(a) - float(b)) / float(b) * 100:+.2f}%"
+        except Exception:
+            return None
 
     if ms == "closed":
         reg_label = "전일 종가"
         reg_price = prev if prev is not None else regular if regular is not None else spot
+        day_base = None
     elif ms == "regular":
         reg_label = "장중 실시간가"
         reg_price = regular if regular is not None else spot
+        day_base = prev
     else:
         reg_label = "정규장 종가"
         reg_price = regular if regular is not None else spot
+        day_base = prev
 
-    lines: list[str] = []
-    lines.append("💰 가격 정보")
-    lines.append(f"- {reg_label}: {_fmt(reg_price)}")
+    close_base = regular if regular is not None else (prev if ms == "closed" else reg_price)
 
-    # 애프터/프리마켓은 None이 아닌 경우에만 표시
-    if after is not None and base_pct is not None:
-        try:
-            pct = (float(after) - float(base_pct)) / float(base_pct) * 100
-            lines.append(f"- 애프터마켓: {_fmt(after)} ({pct:+.2f}%)")
-        except Exception:
+    lines: list[str] = ["💰 가격"]
+    day_pct = _pct(reg_price, day_base) if day_base is not None else None
+    if day_pct:
+        lines.append(f"- {reg_label}: {_fmt(reg_price)} (전일 대비 {day_pct})")
+    else:
+        lines.append(f"- {reg_label}: {_fmt(reg_price)}")
+
+    if after is not None:
+        ap = _pct(after, close_base)
+        if ap:
+            lines.append(f"- 애프터마켓: {_fmt(after)} ({ap} vs 종가)")
+        else:
             lines.append(f"- 애프터마켓: {_fmt(after)}")
-    elif after is not None:
-        lines.append(f"- 애프터마켓: {_fmt(after)}")
 
-    if pre is not None and base_pct is not None:
-        try:
-            pct = (float(pre) - float(base_pct)) / float(base_pct) * 100
-            lines.append(f"- 프리마켓: {_fmt(pre)} ({pct:+.2f}%)")
-        except Exception:
+    if pre is not None:
+        pp = _pct(pre, close_base)
+        if pp:
+            lines.append(f"- 프리마켓: {_fmt(pre)} ({pp} vs 종가)")
+        else:
             lines.append(f"- 프리마켓: {_fmt(pre)}")
-    elif pre is not None:
-        lines.append(f"- 프리마켓: {_fmt(pre)}")
 
     return "\n".join(lines)
 
@@ -164,10 +170,10 @@ def apply_session_to_narrative(narrative: str, data: dict, eventinfo: dict | Non
 
     text = narrative or ""
     price_line = format_price_line(data)
-    # 첫 번째 💰(가격 정보) 섹션을 다음 섹션(🚨/🌡️/🟢🔴) 시작 전까지 통째로 교체
+    # 첫 번째 💰 섹션을 다음 섹션 시작 전까지 통째로 교체
     text = re.sub(
-        r"^💰[\s\S]*?(?=^🚨|^🌡️|^🟢🔴)",
-        price_line,
+        r"^💰[\s\S]*?(?=^🚨|^🌡️|^🟢|^🔴|^📈|^🔮)",
+        price_line + "\n\n",
         text,
         count=1,
         flags=re.MULTILINE,

@@ -133,6 +133,15 @@ def find_missed_signals(prev_snap: dict, results: dict) -> list[str]:
     if not failed:
         return missed
 
+    # 하락 날이면 풋·OI 하락 신호를 콜 V/OI보다 우선
+    prefer_put = False
+    if support and support.get("actual_low") is not None and support.get("predicted"):
+        if support["actual_low"] <= support["predicted"]:
+            prefer_put = True
+    wr = direction.get("weekly_return_pct")
+    if wr is not None and float(wr) < -1:
+        prefer_put = True
+
     for a in prev_snap.get("anomalies") or []:
         chg = a.get("change_pct")
         if chg is None:
@@ -140,13 +149,26 @@ def find_missed_signals(prev_snap: dict, results: dict) -> list[str]:
         if abs(float(chg)) >= _EXTREME_OI_PCT:
             missed.append(a.get("message") or f"OI 급변 {chg:+.0f}%")
 
+    voi_puts: list[str] = []
+    voi_calls: list[str] = []
     for r in (prev_snap.get("metrics") or {}).get("top_voi") or []:
         voi = r.get("voi")
-        if voi is not None and float(voi) >= _HOT_VOI:
-            missed.append(
-                f"{r.get('expiry')} {r.get('type')} ${r.get('strike'):g} "
-                f"V/OI {voi} ({r.get('class')})"
-            )
+        if voi is None or float(voi) < _HOT_VOI:
+            continue
+        line = (
+            f"{r.get('expiry')} {r.get('type')} ${r.get('strike'):g} "
+            f"V/OI {voi} ({r.get('class')})"
+        )
+        if str(r.get("type", "")).upper() in ("PUT", "P", "풋"):
+            voi_puts.append(line)
+        else:
+            voi_calls.append(line)
+    if prefer_put:
+        missed.extend(voi_puts)
+        missed.extend(voi_calls)
+    else:
+        missed.extend(voi_calls)
+        missed.extend(voi_puts)
 
     # 중복 제거, 상위 5개
     seen: set[str] = set()
@@ -301,64 +323,74 @@ def grade_yesterday(
 
 
 def format_feedback_section(fb: dict | None) -> str:
-    """리포트 상단용 텍스트 블록."""
+    """리포트 상단용 짧은 채점 블록 (점수 헤더 + ✅/❌)."""
     if not fb:
         return ""
     if not fb.get("available"):
-        note = fb.get("note") or "어제 예측을 채점할 데이터가 부족해요."
-        return f"📊 어제 예측 vs 오늘 실제\n- {note}\n"
+        note = fb.get("note") or "직전 리포트 채점 데이터가 부족해요."
+        return f"📊 직전 리포트 채점\n- {note}\n"
 
     pred = fb.get("predicted") or {}
     act = fb.get("actual") or {}
     acc = fb.get("accuracy") or {}
-    L: list[str] = []
-    L.append("📊 어제 예측 vs 오늘 실제")
-    L.append(f"- 예측일: {fb.get('prediction_date')} → 평가일: {fb.get('date')}")
-
-    bits = []
-    if pred.get("support") is not None:
-        bits.append(f"${pred['support']:g} 지지")
-    if pred.get("resistance") is not None:
-        bits.append(f"${pred['resistance']:g} 저항")
-    if bits:
-        L.append(f"- 어제 예측: {', '.join(bits)} 체크")
-    band = pred.get("band") or [None, None]
-    if band[0] is not None and band[1] is not None:
-        L.append(f"- 어제 예상 밴드: ${band[0]} ~ ${band[1]}")
-    if pred.get("sentiment"):
-        L.append(f"- 어제 심리 예상: {pred['sentiment']}")
-
-    close = act.get("close")
-    low = act.get("low")
-    high = act.get("high")
-    if close is not None:
-        band_note = ""
-        if band[0] is not None and band[1] is not None:
-            if close < band[0]:
-                band_note = " (예상 밴드 하단 이탈 ❌)"
-            elif close > band[1]:
-                band_note = " (예상 밴드 상단 이탈 ❌)"
-            elif low is not None and high is not None and low >= band[0] and high <= band[1]:
-                band_note = " (밴드 안 ✅)"
-        L.append(f"- 오늘 실제: ${close:g}{band_note}")
-        if low is not None and high is not None:
-            L.append(f"- 오늘 고/저: ${high:g} / ${low:g}")
-
-    if acc.get("summary"):
-        L.append(f"- 정확도: {acc['summary']}")
+    results = fb.get("results") or {}
     g = acc.get("grade") or {}
-    if g.get("grade") is not None:
-        L.append(f"- 종합: {g.get('grade')} ({g.get('score')}점)")
+    grade = g.get("grade", "?")
+    score = g.get("score", "?")
+    pdate = fb.get("prediction_date") or "?"
+    edate = fb.get("date") or "?"
+
+    L: list[str] = []
+    L.append(f"📊 직전 리포트 채점 ({grade} {score}점) · {pdate}→{edate}")
+
+    band = results.get("band") or {}
+    if acc.get("band") == "PASS":
+        L.append("✅ 밴드 예측 성공")
+    elif acc.get("band") == "FAIL":
+        L.append("❌ 밴드 예측 실패")
+    if band.get("predicted") and act.get("low") is not None:
+        pl, pu = band["predicted"]
+        L.append(f"   예상 ${pl}~${pu} / 실제 저·고 ${act.get('low')}~${act.get('high')}")
+
+    support = results.get("support") or {}
+    if acc.get("support") == "FAIL":
+        ps = support.get("predicted")
+        al = support.get("actual_low")
+        L.append(f"❌ 지지선 실패 (${ps:g} → 저가 ${al:g})" if ps is not None and al is not None else "❌ 지지선 실패")
+    elif acc.get("support") == "PASS":
+        L.append("✅ 지지선 참고 OK")
+
+    resistance = results.get("resistance") or {}
+    if acc.get("resistance") == "HIT":
+        L.append("✅ 저항선 도달/돌파")
+    elif resistance.get("predicted") is not None:
+        L.append(f"⚪ 저항선 미달 (예상 ${resistance['predicted']:g})")
+
+    direction = results.get("direction") or {}
+    senti = pred.get("sentiment") or direction.get("predicted_sentiment")
+    ret = act.get("return_pct")
+    if senti == "중립":
+        if ret is not None and abs(ret) >= 2:
+            L.append(f"⚪ 방향: 중립 예상이었는데 큰 움직임 ({ret:+.1f}%)")
+        else:
+            L.append("✅ 방향: 중립 구간 유지")
+    elif acc.get("direction") == "PASS":
+        L.append("✅ 방향 예측 성공")
+    elif acc.get("direction") == "FAIL":
+        L.append(f"❌ 방향 예측 실패 ({senti}, 실제 {ret:+.1f}%)" if ret is not None else "❌ 방향 예측 실패")
 
     missed = fb.get("missed_signals") or []
     lesson = fb.get("lesson")
     if missed or lesson:
-        L.append("")
-        L.append("🔍 왜 빗나갔나 (자동 분석)")
-        for m in missed[:4]:
-            L.append(f"- {m}")
+        top = missed[0] if missed else None
+        if top:
+            # 짧게
+            short = top if len(top) <= 60 else top[:57] + "..."
+            L.append(f"💡 놓친 신호: {short}")
         if lesson:
-            L.append(f"- 다음부터: {lesson}")
+            # 첫 교훈만
+            tip = lesson.split(" / ")[0]
+            L.append(f"→ 다음부터: {tip}")
     L.append("")
     return "\n".join(L)
 
