@@ -1,0 +1,43 @@
+{
+  "date": "2026-07-29",
+  "prediction_date": "2026-07-28",
+  "ticker": "SPCX",
+  "predicted": {
+    "support": 110.0,
+    "resistance": 120.0,
+    "band": [
+      103.0,
+      124.0
+    ],
+    "band_pct": 9.25,
+    "sentiment": "강세",
+    "spot": 113.5,
+    "expiry": "2026-07-31"
+  },
+  "actual": {
+    "open": 109.32,
+    "high": 118.13,
+    "low": 107.01,
+    "close": 116.41,
+    "return_pct": 6.49
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "NEAR/MISS",
+    "direction": "PASS",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 근접 (고가가 예상의 98% 도달) / 방향 일치",
+    "grade": {
+      "score": 99,
+      "grade": "A"
+    }
+  },
+  "missed_signals": [
+    "2026-08-07 PUT $98 V/OI 11.69 (극단)",
+    "2026-08-07 CALL $116 V/OI 17.638 (극단)",
+    "2026-07-31 CALL $111 V/OI 17.624 (극단)",
+    "2026-07-31 CALL $110 V/OI 15.714 (극단)",
+    "2026-07-31 CALL $112 V/OI 10.584 (극단)"
+  ],
+  "lesson": "V/OI 5.0+ (극단) 계약을 지지/저항보다 먼저 언급 / 단기 지지 이탈 가능성 — 아래 강한 지지(OI)를 같이 제시"
+}
