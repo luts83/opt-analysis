@@ -152,6 +152,11 @@ def run_forever() -> int:
     threading.Thread(target=_scheduler_loop, name="scheduler", daemon=True).start()
 
     print(f"[bot] listening chat={config.TELEGRAM_CHAT_ID}")
+    try:
+        tg.send_text("✅ 리포트 봇 준비됨. /report 또는 /help")
+    except tg.TelegramError as e:
+        print(f"[bot] 시작 알림 실패: {e}")
+        return 1
 
     offset: int | None = None
     while True:
