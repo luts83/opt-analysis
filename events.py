@@ -497,18 +497,24 @@ def next_session_scenarios(
     for r in (base.get("top_call_volume") or [])[:8]:
         resist_cands.append(float(r["strike"]))
 
+    # 밴드 하단/상단도 시나리오 1차 레벨로 포함 (현재가에 더 가까울 수 있음)
+    if st.get("lower") is not None:
+        support_cands.append(float(st["lower"]))
+    if st.get("upper") is not None:
+        resist_cands.append(float(st["upper"]))
+
     supports_below = sorted(
-        {s for s in support_cands if s <= spot * 1.005 and (spot - s) <= max_dist},
+        {s for s in support_cands if s < spot * 0.995 and (spot - s) <= max_dist},
         reverse=True,
     )
     resists_above = sorted(
-        {s for s in resist_cands if s >= spot * 0.995 and (s - spot) <= max_dist}
+        {s for s in resist_cands if s > spot * 1.005 and (s - spot) <= max_dist}
     )
     # 후보가 비면 근처 레벨을 합성해 시나리오 3개를 항상 채운다
     if not supports_below:
-        supports_below = sorted({s for s in support_cands if s <= spot * 1.005}, reverse=True)[:2]
+        supports_below = sorted({s for s in support_cands if s < spot * 0.995}, reverse=True)[:2]
     if not resists_above:
-        resists_above = sorted({s for s in resist_cands if s >= spot * 0.995})[:2]
+        resists_above = sorted({s for s in resist_cands if s > spot * 1.005})[:2]
     if not supports_below:
         supports_below = [round(spot * 0.95, 2), round(spot * 0.90, 2)]
     if len(supports_below) < 2:
@@ -516,6 +522,7 @@ def next_session_scenarios(
     if not resists_above:
         resists_above = [round(spot * 1.05, 2)]
 
+    # 1차 = 현재가에 가장 가까운 아래/위 (멀면 안 씀)
     primary_support = supports_below[0]
     next_support = supports_below[1] if len(supports_below) > 1 else round(primary_support * 0.93, 2)
     primary_resist = resists_above[0]
@@ -523,6 +530,27 @@ def next_session_scenarios(
     reclaim = None
     if strong_sup is not None and strong_sup > spot * 1.005 and (strong_sup - spot) <= max_dist:
         reclaim = strong_sup
+
+    # 근거 텍스트용 메타
+    def _why_level(strike: float, side: str) -> str:
+        for item in near_sup_list + strong_sup_list:
+            if abs(float(item["strike"]) - strike) < 0.02:
+                oi = item.get("oi")
+                return f"풋 OI {oi:,}개 밀집" if oi else "풋 지지 후보"
+        for item in near_res_list + strong_res_list:
+            if abs(float(item["strike"]) - strike) < 0.02:
+                oi = item.get("oi")
+                vol = item.get("volume")
+                if oi:
+                    return f"콜 OI {oi:,}개 밀집"
+                if vol:
+                    return f"콜 거래 {vol:,}계약 집중"
+                return "콜 저항 후보"
+        if st.get("lower") is not None and abs(float(st["lower"]) - strike) < 0.6:
+            return "이번주 옵션 밴드 하단"
+        if st.get("upper") is not None and abs(float(st["upper"]) - strike) < 0.6:
+            return "이번주 옵션 밴드 상단"
+        return "옵션 거래·OI 후보" if side else "레벨"
 
     regular = (data or {}).get("regular_close")
     extended = (data or {}).get("extended_price")
@@ -554,12 +582,19 @@ def next_session_scenarios(
     )
     bullish = senti == "강세" and not bearish
 
-    reclaim_bit = f" / ${reclaim:g} 탈환" if reclaim else ""
+    reclaim_bit = f" → ${reclaim:g} 탈환(옛 지지→저항)" if reclaim else ""
+    why_ps = _why_level(primary_support, "sup")
+    why_ns = _why_level(next_support, "sup")
+    why_pr = _why_level(primary_resist, "res")
+
     candidates: list[dict] = [
         {
             "name": "하락 지속",
-            "condition": f"{when} ${primary_support:g} 이탈 시 ${next_support:g} 도전",
-            "watch": "하방 가속·풋 헤지 유효성 확인.",
+            "condition": (
+                f"{when} ${primary_support:g} 하회 시 → ${next_support:g} 도전"
+            ),
+            "watch": f"${primary_support:g}({why_ps}) 이탈이면 하락 가속.",
+            "evidence": f"다음 방어 ${next_support:g} ({why_ns})",
             "rank_bias": 4 if bearish else (2 if senti == "중립" else 1),
         },
         {
@@ -569,12 +604,14 @@ def next_session_scenarios(
                 f"숏커버·반등 가능."
                 + (f" 다음 저항 ${secondary_resist:g}." if secondary_resist else "")
             ),
+            "evidence": f"${primary_resist:g} ({why_pr})",
             "rank_bias": 3 if bullish else (2 if senti in ("반등 시도 국면", "중립") else 1),
         },
         {
             "name": "횡보",
             "condition": f"{when} ${primary_support:g}~${primary_resist:g} 박스권",
             "watch": "돌파/이탈 전까진 방향 단정하지 않기.",
+            "evidence": "가까운 지지·저항 사이 소화 구간",
             "rank_bias": 3 if senti == "중립" and not bearish else 2,
         },
     ]
@@ -599,6 +636,7 @@ def next_session_scenarios(
                 "name": f"{i}. {c['name']}{tag}",
                 "condition": c["condition"],
                 "watch": c["watch"],
+                "evidence": c.get("evidence"),
             }
         )
 
@@ -610,19 +648,33 @@ def next_session_scenarios(
     elif earnings and earnings.get("phase") == "임박":
         context = "실적 발표 임박. 방향 단정 대신 변동성·레벨 반응에 주목."
 
-    checks: list[str] = [
-        f"${primary_support:g} 이탈 여부 (하락 가속 신호)",
-        f"${primary_resist:g} 돌파 여부 (반등 신호)",
+    # 체크포인트: 현재가에 가까운 것부터 + 근거
+    checks: list[dict] = [
+        {
+            "text": f"${primary_support:g} 이탈 여부 — 하락 가속 첫 신호",
+            "why": why_ps,
+        },
+        {
+            "text": f"${primary_resist:g} 돌파 여부 — 반등 확인 신호",
+            "why": why_pr,
+        },
     ]
-    interest = reclaim or (
-        strong_sup
-        if strong_sup is not None and primary_support != strong_sup
-        else next_support
-    )
-    if interest is not None and interest not in (primary_support, primary_resist):
-        checks.append(f"${interest:g} 도달 시 매수 관심 구간")
+    if next_support and next_support != primary_support:
+        checks.append(
+            {
+                "text": f"${next_support:g} 도달 시 — 다음 방어/반등 관심",
+                "why": why_ns,
+            }
+        )
+    if reclaim and reclaim not in (primary_support, primary_resist):
+        checks.append(
+            {
+                "text": f"${reclaim:g} 탈환 여부 — 옛 지지 되찾기",
+                "why": "이미 뚫린 지지 → 지금은 저항 역할",
+            }
+        )
 
-    action_hint = " / ".join(checks)
+    action_hint = " / ".join(c["text"] for c in checks)
 
     return {
         "reference_spot": spot,

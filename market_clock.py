@@ -72,7 +72,7 @@ def action_hint_prefix(market_session: str) -> str:
 
 
 def format_price_line(data: dict) -> str:
-    """세션별 💰 가격 블록 — 날짜를 명시해서 혼동 방지."""
+    """세션별 💰 가격 블록 — 날짜·절대금액·변동폭을 함께 표시."""
     import datetime as _dt
 
     ms = data.get("market_session") or get_market_session()
@@ -80,7 +80,7 @@ def format_price_line(data: dict) -> str:
     prev = data.get("previous_close")
     regular = data.get("regular_close")
     pre = data.get("pre_market_price")
-    report_date = data.get("date")  # ET 기준 최근 거래일 (e.g. "2026-07-28")
+    report_date = data.get("date")
 
     def _fmt(v) -> str:
         if v is None:
@@ -99,7 +99,6 @@ def format_price_line(data: dict) -> str:
             return None
 
     def _date_label(iso: str | None, delta_days: int = 0) -> str:
-        """ISO 날짜 → '7/28(화)' 형태. delta_days로 영업일 전일 근사."""
         if not iso:
             return ""
         try:
@@ -117,7 +116,7 @@ def format_price_line(data: dict) -> str:
     prev_date = _date_label(report_date, delta_days=1)
 
     if ms == "closed":
-        reg_label = f"{close_date} 종가" if close_date else "전일 종가"
+        reg_label = f"{close_date} 종가" if close_date else "종가"
         reg_price = regular if regular is not None else spot
         day_base = prev
     elif ms == "regular":
@@ -130,10 +129,18 @@ def format_price_line(data: dict) -> str:
         day_base = prev
 
     lines: list[str] = ["💰 가격"]
+    # 전일 종가를 먼저 보여 비교 가능하게
+    if day_base is not None and prev_date:
+        lines.append(f"- {prev_date} 종가: {_fmt(day_base)}")
+
     day_pct = _pct(reg_price, day_base) if day_base is not None else None
-    if day_pct:
-        base_tag = f"{prev_date} 대비" if prev_date else "전일 대비"
-        lines.append(f"- {reg_label}: {_fmt(reg_price)} ({base_tag} {day_pct})")
+    if day_pct and day_base is not None:
+        try:
+            delta = float(reg_price) - float(day_base)
+            delta_s = f"{delta:+.2f}".rstrip("0").rstrip(".")
+            lines.append(f"- {reg_label}: {_fmt(reg_price)} (${delta_s}, {day_pct})")
+        except Exception:
+            lines.append(f"- {reg_label}: {_fmt(reg_price)} ({day_pct})")
     else:
         lines.append(f"- {reg_label}: {_fmt(reg_price)}")
 
@@ -141,8 +148,9 @@ def format_price_line(data: dict) -> str:
         pp = _pct(pre, reg_price)
         today_label = ""
         try:
-            now_et = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=-4)))
-            td = now_et.date()
+            from zoneinfo import ZoneInfo
+
+            td = _dt.datetime.now(ZoneInfo("America/New_York")).date()
             dow = "월화수목금토일"[td.weekday()]
             today_label = f"{td.month}/{td.day}({dow}) "
         except Exception:

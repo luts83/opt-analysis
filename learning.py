@@ -209,19 +209,19 @@ def build_lesson(missed: list[str], results: dict) -> str | None:
     ret = direction.get("weekly_return_pct")
     tips: list[str] = []
     if any("OI" in m and ("+" in m or "유입" in m) for m in missed):
-        tips.append(f"OI +{_EXTREME_OI_PCT:.0f}% 이상 급변은 최우선 강조 필요")
+        tips.append("미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급")
     call_extreme_but_drop = any(
         "CALL" in m.upper() and "V/OI" in m and "급락" in m for m in missed
     )
     if call_extreme_but_drop:
         tips.append("콜 V/OI 극단≠강세 — 급락 시 콜 매도 물량 가능성부터 검토")
     elif any("V/OI" in m for m in missed):
-        tips.append(f"V/OI {_HOT_VOI}+ 계약은 방향(매수/매도) 해석과 함께 언급")
+        tips.append("거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급")
     if band and not band.get("contained"):
-        tips.append("밴드 이탈 시 풋/콜 OI 급변 신호를 함께 재검토")
+        tips.append("예상 범위 이탈 시 콜·풋 이상신호를 함께 재검토")
     if support and support.get("actual_low") is not None and support.get("predicted"):
         if support["actual_low"] <= support["predicted"]:
-            tips.append("단기 지지 이탈 가능성 — 아래 강한 지지(OI)를 같이 제시")
+            tips.append("지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시")
     if ret is not None and float(ret) <= -5:
         tips.append("급락일엔 C/P 상승을 강세로 읽지 말 것(반등 시도/양방향 베팅)")
     if not tips and missed:
@@ -350,7 +350,9 @@ def grade_yesterday(
 
 
 def format_feedback_section(fb: dict | None) -> str:
-    """리포트 상단용 짧은 채점 블록 (점수 헤더 + ✅/❌)."""
+    """리포트 상단용 채점 블록 — 실패 시 원인·개선(초보자 문장) 포함."""
+    import report_evidence as ev
+
     if not fb:
         return ""
     if not fb.get("available"):
@@ -383,7 +385,11 @@ def format_feedback_section(fb: dict | None) -> str:
     if acc.get("support") == "FAIL":
         ps = support.get("predicted")
         al = support.get("actual_low")
-        L.append(f"❌ 지지선 실패 (${ps:g} → 저가 ${al:g})" if ps is not None and al is not None else "❌ 지지선 실패")
+        L.append(
+            f"❌ 지지선 실패 (${ps:g} → 저가 ${al:g})"
+            if ps is not None and al is not None
+            else "❌ 지지선 실패"
+        )
     elif acc.get("support") == "PASS":
         L.append("✅ 지지선 참고 OK")
 
@@ -391,7 +397,11 @@ def format_feedback_section(fb: dict | None) -> str:
     if acc.get("resistance") == "HIT":
         L.append("✅ 저항선 도달/돌파")
     elif acc.get("resistance") == "FAIL" or resistance.get("predicted") is not None:
-        L.append(f"❌ 저항선 미달 (예상 ${resistance['predicted']:g})" if resistance.get("predicted") is not None else "❌ 저항선 미달")
+        L.append(
+            f"❌ 저항선 미달 (예상 ${resistance['predicted']:g})"
+            if resistance.get("predicted") is not None
+            else "❌ 저항선 미달"
+        )
 
     direction = results.get("direction") or {}
     senti = pred.get("sentiment") or direction.get("predicted_sentiment")
@@ -404,18 +414,24 @@ def format_feedback_section(fb: dict | None) -> str:
     elif acc.get("direction") == "PASS":
         L.append("✅ 방향 예측 성공")
     elif acc.get("direction") == "FAIL":
-        L.append(f"❌ 방향 예측 실패 ({senti}, 실제 {ret:+.1f}%)" if ret is not None else "❌ 방향 예측 실패")
+        L.append(
+            f"❌ 방향 예측 실패 ({senti}, 실제 {ret:+.1f}%)"
+            if ret is not None
+            else "❌ 방향 예측 실패"
+        )
+
+    L.extend(ev.feedback_cause_lines(fb))
 
     missed = fb.get("missed_signals") or []
     lesson = fb.get("lesson")
-    if missed or lesson:
-        top = missed[0] if missed else None
-        if top:
-            short = top if len(top) <= 110 else top[:107] + "..."
-            L.append(f"💡 주목 신호: {short}")
-        if lesson:
-            tip = lesson.split(" / ")[0]
-            L.append(f"→ 다음부터: {tip}")
+    bl = ev.beginner_lesson(lesson, missed)
+    if bl:
+        L.append("")
+        L.append(bl)
+    elif missed:
+        top = missed[0]
+        short = top if len(top) <= 110 else top[:107] + "..."
+        L.append(f"💡 주목 신호: {short}")
     L.append("")
     return "\n".join(L)
 
