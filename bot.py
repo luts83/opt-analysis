@@ -14,6 +14,7 @@ Railway: 서비스 하나만.
 """
 from __future__ import annotations
 
+import datetime as dt
 import re
 import sys
 import threading
@@ -52,8 +53,11 @@ def _parse_command(text: str) -> tuple[str | None, list[str]]:
     return cmd, parts[1:]
 
 
-def _run_report(ticker: str | None, *, reason: str) -> None:
-    argv = ["--no-email"]
+def _run_report(ticker: str | None, *, reason: str, send_email: bool = True) -> None:
+    # 스케줄/수동 모두 이메일 발송 (GitHub Actions 와 중복될 수 있으나 누락보다 나음)
+    argv: list[str] = []
+    if not send_email:
+        argv.append("--no-email")
     if ticker:
         argv += ["--ticker", ticker.upper()]
     label = ticker.upper() if ticker else ", ".join(config.TICKERS)
