@@ -105,6 +105,173 @@ def one_liner(data: dict, base: dict, eventinfo: dict | None = None) -> str:
 
 
 # ------------------------------------------------------------------ #
+# 오늘의 핵심 3가지 (초보자용 맨 위 요약)
+# ------------------------------------------------------------------ #
+
+def _pick_level(items: list[dict], spot: float, *, above: bool) -> dict | None:
+    """현재가 위/아래에서 가장 가까운 레벨 1개."""
+    cands = []
+    for it in items or []:
+        try:
+            s = float(it["strike"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if above and s > spot * 1.005:
+            cands.append((s - spot, it))
+        elif not above and s < spot * 0.995:
+            cands.append((spot - s, it))
+    if not cands:
+        return None
+    cands.sort(key=lambda x: x[0])
+    return cands[0][1]
+
+
+def _level_why(it: dict, *, side: str) -> str:
+    """초보자용 짧은 근거."""
+    oi = it.get("oi")
+    vol = it.get("volume")
+    if side == "res":
+        if oi and vol:
+            return f"콜 거래 {vol:,}·콜 대기(OI) {oi:,}개가 몰린 자리"
+        if oi:
+            return f"콜 대기(OI) {oi:,}개가 몰린 자리"
+        if vol:
+            return f"콜 거래 {vol:,}계약이 몰린 자리"
+        if it.get("flipped_from_support"):
+            return "예전에 지지였다가 뚫려, 지금은 저항으로 바뀐 자리"
+        return "옵션 매물이 모여 있는 자리"
+    # support
+    if oi and vol:
+        return f"풋 거래 {vol:,}·풋 대기(OI) {oi:,}개가 몰린 자리"
+    if oi:
+        return f"풋 대기(OI) {oi:,}개가 몰린 자리"
+    if vol:
+        return f"풋 거래 {vol:,}계약이 몰린 자리"
+    if it.get("flipped_from_resist"):
+        return "예전에 저항이었다가 뚫려, 지금은 지지로 바뀐 자리"
+    return "옵션 매수 대기가 모여 있는 자리"
+
+
+def _lesson_takeaway(fb: dict | None, ctx: dict | None = None) -> str:
+    """세 번째 핵심: 과거 교훈을 초보자 문장으로."""
+    fb = fb or {}
+    missed = fb.get("missed_signals") or []
+    lesson = fb.get("lesson") or ""
+    acc = fb.get("accuracy") or {}
+    pred = fb.get("predicted") or {}
+    act = fb.get("actual") or {}
+    ret = act.get("return_pct")
+    senti = pred.get("sentiment")
+
+    # 약세/풋 신호였는데 상승
+    if (
+        (senti == "약세" or any("PUT" in m.upper() or "풋" in m for m in missed))
+        and ret is not None
+        and float(ret) > 2
+    ):
+        return (
+            "과거에는 '풋이 늘었으니 하락'으로만 읽었지만 실제로는 상승한 적이 있어요. "
+            "풋이 정말 하락 베팅인지, 기관 보험(헤지)·풋 매도인지도 함께 봅니다."
+        )
+    # 강세/콜 신호였는데 급락
+    if (
+        (senti == "강세" or any("CALL" in m.upper() and "급락" in m for m in missed))
+        and ret is not None
+        and float(ret) < -2
+    ) or ("콜 V/OI" in lesson and "급락" in lesson):
+        return (
+            "과거에는 '콜이 몰렸으니 상승'으로 읽었지만 급락한 적이 있어요. "
+            "급락 때 콜 몰림은 매도자가 프리미엄을 받으려는 것일 수 있어, 방향만 보지 않습니다."
+        )
+    if acc.get("direction") == "FAIL" and ret is not None:
+        return (
+            f"직전 방향 예측이 빗나갔어요(예상 {senti or '?'}, 실제 {float(ret):+.1f}%). "
+            "이번엔 한쪽 신호만 보고 단정하지 않고, 콜·풋을 같이 봅니다."
+        )
+    tips = (ctx or {}).get("개선지시") or []
+    if tips:
+        t0 = tips[0]
+        if "풋" in t0 or "PUT" in t0.upper():
+            return (
+                "최근 놓친 패턴: 풋 신호를 과대/과소 해석. "
+                "풋 증가 = 무조건 하락이 아니라 헤지·매도일 수도 있어요."
+            )
+        if "콜" in t0 or "CALL" in t0.upper():
+            return (
+                "최근 놓친 패턴: 콜 신호를 과대 해석. "
+                "콜 몰림 = 무조건 상승이 아니라 콜 매도일 수도 있어요."
+            )
+        return f"이번 반영 교훈: {t0[:80]}"
+    if lesson:
+        bl = beginner_lesson(lesson, missed)
+        for line in bl.split("\n")[1:]:
+            if line.strip():
+                return line.strip()
+    return (
+        "옵션 거래가 많다고 방향을 단정하지 않습니다. "
+        "'누가 샀는지/팔았는지'와 지지·저항 반응을 같이 봅니다."
+    )
+
+
+def key_summary_block(
+    data: dict,
+    base: dict,
+    eventinfo: dict | None = None,
+    feedback: dict | None = None,
+    learning_context: dict | None = None,
+) -> str:
+    """맨 위용 핵심 3가지 — 초보자가 이것만 읽어도 되게."""
+    spot = data.get("spot")
+    if spot is None:
+        return ""
+    spot = float(spot)
+    levels = enrich_levels(base.get("levels") or {}, spot)
+
+    res_pool = (levels.get("near_resistance") or []) + (levels.get("strong_resistance") or [])
+    # OI/거래 큰 쪽을 우선해 '가장 중요한 자리' 선정
+    def _weight(it: dict) -> tuple:
+        return (-(it.get("oi") or 0), -(it.get("volume") or 0), abs(float(it["strike"]) - spot))
+
+    res_above = [it for it in res_pool if float(it["strike"]) > spot * 1.005]
+    res_above.sort(key=_weight)
+    resist = res_above[0] if res_above else _pick_level(res_pool, spot, above=True)
+
+    sup_pool = (levels.get("near_support") or []) + (levels.get("strong_support") or [])
+    sup_below = [it for it in sup_pool if float(it["strike"]) < spot * 0.995]
+    # 가까운 방어선 우선, 동률이면 OI/거래 큰 쪽
+    sup_below.sort(key=lambda it: (abs(float(it["strike"]) - spot), -(it.get("oi") or 0)))
+    support = sup_below[0] if sup_below else _pick_level(sup_pool, spot, above=False)
+
+    L = ["⭐ 오늘의 핵심 3가지", "(아래 긴 내용 전에, 이것만 먼저 읽으세요)"]
+    n = 1
+    if resist:
+        rs = float(resist["strike"])
+        L.append(f"{n}. {_fmt_px(rs)}가 가장 중요한 자리")
+        L.append(f"   {_level_why(resist, side='res')}.")
+        L.append(f"   → 단기 저항이자, 돌파 여부를 확인할 가격입니다.")
+        n += 1
+    if support:
+        ss = float(support["strike"])
+        L.append(f"{n}. {_fmt_px(ss)}는 첫 번째 방어선")
+        L.append(f"   {_level_why(support, side='sup')}.")
+        L.append(f"   → 이 가격 아래로 내려가면 하락세가 강해질 수 있어 경계합니다.")
+        n += 1
+    L.append(f"{n}. 이전 분석의 교훈")
+    # 교훈 문장을 2줄로 감싸기
+    lesson = _lesson_takeaway(feedback, learning_context)
+    # 80자 내외로 줄바꿈
+    if len(lesson) > 90:
+        cut = lesson.rfind(" ", 0, 90)
+        if cut < 40:
+            cut = 90
+        L.append(f"   {lesson[:cut].strip()}")
+        L.append(f"   {lesson[cut:].strip()}")
+    else:
+        L.append(f"   {lesson}")
+    return "\n".join(L)
+
+
+# ------------------------------------------------------------------ #
 # 시장 온도
 # ------------------------------------------------------------------ #
 
@@ -538,7 +705,7 @@ def learning_section(ticker: str, today_feedback: dict | None = None, ctx: dict 
 # ------------------------------------------------------------------ #
 
 _SECTION_NEXT = (
-    r"(?=^[\U0001F300-\U0001FAFF📊🎯💰🚨🌡️🟢🔴📈🔮⚠️📰📚]|^⚠️ 이 리포트|\Z)"
+    r"(?=^[\U0001F300-\U0001FAFF⭐📊🎯💰🚨🌡️🟢🔴📈🔮⚠️📰📚]|^⚠️ 이 리포트|\Z)"
 )
 
 
@@ -558,6 +725,7 @@ def enforce_all(
     narrative: str,
     *,
     title: str | None,
+    key_summary: str | None = None,
     temp: str | None,
     levels: str | None,
     band: str | None,
@@ -568,6 +736,18 @@ def enforce_all(
     t = narrative or ""
     if title:
         t = re.sub(r"(?m)^🎯\s.*$", f"🎯 {title}", t, count=1)
+    if key_summary:
+        t = replace_section(t, r"⭐", key_summary)
+        if "⭐ 오늘의 핵심" not in t:
+            # 🎯 한 줄 다음, 없으면 💰 앞에 삽입
+            m = re.search(r"(?m)^🎯\s.*$", t)
+            if m:
+                insert_at = m.end()
+                t = t[:insert_at] + "\n\n" + key_summary.strip() + "\n" + t[insert_at:]
+            elif "💰 가격" in t:
+                t = t.replace("💰 가격", key_summary.strip() + "\n\n💰 가격", 1)
+            else:
+                t = key_summary.strip() + "\n\n" + t
     if temp:
         t = replace_section(t, r"🌡️", temp)
     if levels:

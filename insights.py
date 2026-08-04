@@ -2,8 +2,8 @@
 
 - 1순위: ChatGPT(OpenAI) 로 일반인용 친근한 리포트 생성.
 - 폴백: API 키 없음/실패 시 규칙 기반 리포트.
-- 핵심 섹션(제목/온도/레벨/밴드/시나리오/학습/체크포인트)은
-  시스템이 근거 문장으로 강제 교체해 LLM이 근거를 빼도 복구한다.
+- 핵심 섹션은 시스템이 근거 문장으로 강제 교체.
+- 맨 위: ⭐ 오늘의 핵심 3가지 (초보자용).
 """
 from __future__ import annotations
 
@@ -31,15 +31,16 @@ def build_friendly_fallback(
     spot = data.get("spot")
 
     L: list[str] = []
-    fb_text = learning.format_feedback_section(fb)
-    if fb_text:
-        L.append(fb_text.rstrip())
-        L.append("")
-
     L.append(f"📊 오늘의 {data['ticker']} 옵션 시장 이야기 - {data['date']}")
     L.append("")
     L.append(f"🎯 {ev.one_liner(data, base, eventinfo)}")
     L.append("")
+
+    key = ev.key_summary_block(data, base, eventinfo, fb, ctx)
+    if key:
+        L.append(key)
+        L.append("")
+
     L.append(market_clock.format_price_line(data))
     L.append("")
 
@@ -88,6 +89,12 @@ def build_friendly_fallback(
             L.append(f"- {u}")
         L.append("")
 
+    # 채점·학습은 핵심 요약 뒤·상세 끝에 (초보자는 위에서 끝낼 수 있게)
+    fb_text = learning.format_feedback_section(fb)
+    if fb_text:
+        L.append(fb_text.rstrip())
+        L.append("")
+
     L.append(ev.learning_section(data.get("ticker", ""), fb, ctx))
     L.append("")
     L.append(ev.format_checkpoints(nxt))
@@ -130,10 +137,11 @@ def build_narrative(
     text = report_polish.polish_narrative(text)
     text = market_clock.apply_session_to_narrative(text, data, eventinfo)
 
-    # 근거 블록으로 핵심 섹션 강제 교체 (LLM이 근거를 빼도 복구)
+    key = ev.key_summary_block(data, base, eventinfo, fb, ctx)
     text = ev.enforce_all(
         text,
         title=ev.one_liner(data, base, eventinfo),
+        key_summary=key,
         temp=ev.sentiment_block(base, in_earnings=in_earnings),
         levels=ev.levels_block(base.get("levels"), spot),
         band=ev.band_block(base),
@@ -143,15 +151,24 @@ def build_narrative(
     )
     text = events.with_linked_news(text, eventinfo)
 
+    # 채점 블록: 맨 위가 아니라 핵심 요약·가격 뒤(📚 앞)에 둠
     fb_block = learning.format_feedback_section(fb)
     if fb_block:
         text = re.sub(
-            r"(?m)^📊\s*(직전 리포트 채점|어제 예측 vs 오늘 실제).*?(?=^📊 오늘의|\Z)",
+            r"(?m)^📊\s*(직전 리포트 채점|어제 예측 vs 오늘 실제).*?(?=^📊 오늘의|^⭐ |^💰 |^🚨 |^🌡️ |^🟢 |^📈 |^🔮 |^📚 |^⚠️ |^🎯 오늘|\Z)",
             "",
             text,
             count=1,
             flags=re.S,
         )
-        text = fb_block + "\n" + text.lstrip()
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        if "📚 과거 데이터 학습" in text:
+            text = text.replace(
+                "📚 과거 데이터 학습",
+                fb_block.strip() + "\n\n📚 과거 데이터 학습",
+                1,
+            )
+        else:
+            text = text.rstrip() + "\n\n" + fb_block.strip() + "\n"
 
     return text, src
