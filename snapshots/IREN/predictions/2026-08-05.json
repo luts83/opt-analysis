@@ -1,0 +1,42 @@
+{
+  "date": "2026-08-05",
+  "prediction_date": "2026-08-04",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 41.0,
+    "resistance": 41.0,
+    "band": [
+      36.7,
+      45.0
+    ],
+    "band_pct": 10.16,
+    "sentiment": "약세",
+    "spot": 40.85,
+    "expiry": "2026-08-07"
+  },
+  "actual": {
+    "open": 40.05,
+    "high": 41.16,
+    "low": 38.89,
+    "close": 38.89,
+    "return_pct": -2.9
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "HIT",
+    "direction": "PASS",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 돌파! (실제 고가 $41.16 ≥ 예상 $41) / 방향 일치",
+    "grade": {
+      "score": 82,
+      "grade": "B-",
+      "passes": 3,
+      "fails": 1
+    }
+  },
+  "missed_signals": [
+    "2026-08-14 PUT $41 V/OI 16.494 (극단) → 결과: 급락(-2.9%)",
+    "2026-08-14 PUT $29 V/OI 11.709 (극단) → 결과: 급락(-2.9%)"
+  ],
+  "lesson": "거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}
