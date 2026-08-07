@@ -1,0 +1,43 @@
+{
+  "date": "2026-08-06",
+  "prediction_date": "2026-08-05",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 38.0,
+    "resistance": 40.0,
+    "band": [
+      35.62,
+      42.16
+    ],
+    "band_pct": 8.41,
+    "sentiment": "중립",
+    "spot": 38.89,
+    "expiry": "2026-08-07"
+  },
+  "actual": {
+    "open": 37.26,
+    "high": 40.47,
+    "low": 37.08,
+    "close": 37.93,
+    "return_pct": 1.81
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "HIT",
+    "direction": "PASS",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 돌파! (실제 고가 $40.47 ≥ 예상 $40) / 방향 일치",
+    "grade": {
+      "score": 82,
+      "grade": "B-",
+      "passes": 3,
+      "fails": 1
+    }
+  },
+  "missed_signals": [
+    "2026-08-07 PUT $34.5 V/OI 7.377 (극단) → 결과: +1.8%",
+    "2026-08-07 PUT $37.5 V/OI 6.794 (극단) → 결과: +1.8%",
+    "2026-08-21 CALL $39.5 V/OI 24.818 (극단) → 결과: +1.8%"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}
