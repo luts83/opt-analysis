@@ -1,0 +1,26 @@
+---
+description: opt-analysis 프로젝트 컨텍스트·크로스머신 워크플로
+alwaysApply: true
+---
+
+# opt-analysis
+
+옵션 리포트 자동화 (Python). 상세: `AGENTS.md`, 이어하기: `HANDOFF.md`.
+
+## 새 세션
+
+1. `git pull` 후 필요 시 `./scripts/setup.sh` / `./scripts/doctor.sh`
+2. `HANDOFF.md`의 현재 상태·다음에 할 일 확인
+3. 시크릿은 `.env` (커밋 금지). 없으면 Railway Variables 또는 다른 컴 `.env`에서 복사하라고 안내
+
+## 코딩
+
+- 사용자와는 한국어
+- 요청 범위만 변경. `.env`/시크릿 커밋 금지
+- 엔트리: `main.py`(일일), `weekly.py`(주간), `bot.py`(텔레그램)
+- 설정: `settings.json` + `config.py`
+- 공통 명령: `make setup|doctor|report-preview|bot|weekly-preview|test`
+
+## 세션 종료 시
+
+사용자가 "여기까지" / 핸드오프 / 다른 컴에서 이어서 등을 말하면 `HANDOFF.md`를 짧게 갱신.

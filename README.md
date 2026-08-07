@@ -1,36 +1,49 @@
-# IREN Options Report — Phase 0 (로컬 프로토타입)
+# IREN Options Report
 
-옵션 체인 데이터를 수집해 지표를 계산하고, 콘솔에 텍스트 리포트를 출력하는 스크립트.
-지금은 **Phase 0(로컬 검증)** 단계로, 스케줄러/이메일 발송은 포함하지 않는다.
+옵션 체인 수집 → 지표/인사이트 → 일일·주간 리포트 → 텔레그램(Railway 봇) 발송.
+
+이어하기·에이전트 맥락: [`HANDOFF.md`](HANDOFF.md), [`AGENTS.md`](AGENTS.md)
+
+## 새 컴퓨터에서 시작 (권장)
+
+```bash
+git pull                          # 또는 clone
+./scripts/setup.sh                # venv + deps + .env 템플릿
+# 다른 컴의 .env 또는 Railway Variables 에서 키 붙여넣기
+./scripts/doctor.sh               # 막히는 항목 점검
+make report-preview               # 스모크 테스트
+```
+
+공통 명령: `make help` (`setup`, `doctor`, `report`, `bot`, `weekly`, `test` …)
 
 ## 목적
 
-실제로 계산한 숫자(현재가, OI, 볼륨, 예상 밴드 등)가 브라우저(Finviz 등)에서 보던 값과
-맞는지 사람이 눈으로 검증하는 것.
+계산한 숫자(현재가, OI, 볼륨, 예상 밴드 등)를 Finviz 등과 눈으로 검증하고,
+일일/주간 리포트와 자기학습 피드백을 운영한다.
 
 ## 요구 환경
 
-- Python 3.11+
-- 패키지: `yfinance`, `pandas`
+- Python 3.11+ (Dockerfile / `.python-version` 기준 3.11)
+- `requirements.txt` (yfinance, pandas, openai, …)
 
-## 설치 (가상환경 권장)
+## 설치 (수동)
+
+`./scripts/setup.sh` 를 쓸 수 없으면:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env
 ```
 
 ## API 키 / 이메일 설정 (.env)
 
-`.env` 에 키/인증정보를 넣는다. (`.env` 는 git 에 커밋되지 않음)
+`.env` 에 키/인증정보를 넣는다. (`.env` 는 git 에 커밋되지 않음 — **컴마다 한 번** 복사)
 
-```bash
-cp .env.example .env
-```
-
-- `OPENAI_API_KEY` — ChatGPT 자연어 해설용. 없으면 규칙 기반으로 폴백.
-- `EMAIL_SENDER` / `EMAIL_APP_PASSWORD` / `EMAIL_RECIPIENTS` — 이메일 발송용.
+- `OPENAI_API_KEY` — ChatGPT 자연어 해설용. 없으면 규칙 기반 폴백.
+- `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` — 봇·발송 (운영 주력)
+- `EMAIL_SENDER` / `EMAIL_APP_PASSWORD` / `EMAIL_RECIPIENTS` — 이메일(선택)
 
 ### Gmail 앱 비밀번호 발급
 
@@ -145,6 +158,12 @@ snapshots/IREN/      # 날짜별 JSON 스냅샷 (+ weekly/ 주간 스냅샷)
 - 월간 = "그 달의 세 번째 금요일 날짜"와 정확히 일치하며 다음주보다 뒤인 첫 만기
   (없으면 다음 달 세 번째 금요일로)
 
-## 다음 단계 (Phase 1, 이번 스코프 아님)
+## 크로스머신 개발
 
-GitHub Actions cron, 이메일(SMTP) 발송, (선택) ChatGPT 해설.
+| 동기화 | 방법 |
+|---|---|
+| 코드·스냅샷·핸드오프 | `git push` / `git pull` |
+| 시크릿 | `.env` 수동 복사 또는 Railway Variables |
+| AI 맥락 | `AGENTS.md`, `HANDOFF.md`, `.cursor/rules/` (저장소에 포함) |
+
+세션 끝: `HANDOFF.md`에 "현재 상태 / 다음에 할 일"을 짧게 적어두면 다음 컴에서 바로 이어감.
