@@ -1,0 +1,39 @@
+{
+  "date": "2026-08-10",
+  "prediction_date": "2026-08-07",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 32.0,
+    "resistance": 45.0,
+    "band": [
+      36.65,
+      45.81
+    ],
+    "band_pct": 11.11,
+    "sentiment": "양방향 극단 베팅",
+    "spot": 41.23,
+    "expiry": "2026-08-14"
+  },
+  "actual": {
+    "open": 41.28,
+    "high": 41.31,
+    "low": 38.69,
+    "close": 38.74,
+    "return_pct": -6.15
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "FAIL",
+    "direction": "PASS",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 미달 (8.2% 못 미침) / 방향 일치",
+    "grade": {
+      "score": 70,
+      "grade": "C",
+      "passes": 3,
+      "fails": 1
+    }
+  },
+  "missed_signals": [],
+  "lesson": "급락일엔 C/P 상승을 강세로 읽지 말 것(반등 시도/양방향 베팅)"
+}
