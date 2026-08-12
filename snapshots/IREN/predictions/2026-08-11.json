@@ -1,0 +1,39 @@
+{
+  "date": "2026-08-11",
+  "prediction_date": "2026-08-10",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 38.0,
+    "resistance": 41.0,
+    "band": [
+      35.13,
+      42.35
+    ],
+    "band_pct": 9.32,
+    "sentiment": "반등 시도 국면",
+    "spot": 38.74,
+    "expiry": "2026-08-14"
+  },
+  "actual": {
+    "open": 40.2,
+    "high": 40.96,
+    "low": 39.35,
+    "close": 39.75,
+    "return_pct": -1.12
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "FAIL",
+    "direction": "PASS",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 근접 (고가가 예상의 100% 도달) / 방향 일치",
+    "grade": {
+      "score": 76,
+      "grade": "C+",
+      "passes": 3,
+      "fails": 1
+    }
+  },
+  "missed_signals": [],
+  "lesson": null
+}
