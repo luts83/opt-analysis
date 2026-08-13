@@ -30,10 +30,11 @@ def test_third_friday_basic():
 
 
 def test_select_sample():
-    result = select_from_expiries(SAMPLE_EXPIRIES)
+    result = select_from_expiries(SAMPLE_EXPIRIES, as_of=dt.date(2026, 7, 20))
     assert result["this_week"] == "2026-07-24"
     assert result["next_week"] == "2026-07-31"
     assert result["monthly"] == "2026-08-21"
+    assert "zero_dte" not in result
 
 
 def test_monthly_skips_when_equal_to_weekly():
@@ -44,10 +45,25 @@ def test_monthly_skips_when_equal_to_weekly():
     9월 3번째 금요일(9/18)이 선택돼야 한다.
     """
     expiries = ["2026-08-21", "2026-08-28", "2026-09-04", "2026-09-18", "2026-10-16"]
-    result = select_from_expiries(expiries)
+    result = select_from_expiries(expiries, as_of=dt.date(2026, 8, 20))
     assert result["this_week"] == "2026-08-21"
     assert result["next_week"] == "2026-08-28"
     assert result["monthly"] == "2026-09-18"
+
+
+def test_zero_dte_skipped_from_this_week():
+    """만기 당일은 this_week 가 아니라 zero_dte."""
+    result = select_from_expiries(SAMPLE_EXPIRIES, as_of=dt.date(2026, 7, 24))
+    assert result["zero_dte"] == "2026-07-24"
+    assert result["this_week"] == "2026-07-31"
+    assert result["next_week"] == "2026-08-07"
+
+
+def test_past_expiries_skipped():
+    result = select_from_expiries(SAMPLE_EXPIRIES, as_of=dt.date(2026, 8, 13))
+    assert result["this_week"] == "2026-08-14"
+    assert result["next_week"] == "2026-08-21"
+    assert "zero_dte" not in result
 
 
 def _run_all():

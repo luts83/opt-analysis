@@ -218,7 +218,14 @@ def build_lesson(missed: list[str], results: dict) -> str | None:
     elif any("V/OI" in m for m in missed):
         tips.append("거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급")
     if band and not band.get("contained"):
-        tips.append("예상 범위 이탈 시 콜·풋 이상신호를 함께 재검토")
+        tips.append(
+            "밴드를 천장/바닥으로 쓰지 말 것. "
+            "상단 돌파 + 거래량 폭증 시 상단 확장 가능성을 더 높게 평가"
+        )
+        ah = (results.get("resistance") or {}).get("actual_high")
+        pu = (band.get("predicted") or [None, None])[1]
+        if ah is not None and pu is not None and float(ah) > float(pu):
+            tips.append("예측 실패 원인: 다음 저항만 제시하고 확장 구간을 빠뜨림")
     if support and support.get("actual_low") is not None and support.get("predicted"):
         if support["actual_low"] <= support["predicted"]:
             tips.append("지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시")
@@ -370,7 +377,7 @@ def format_feedback_section(fb: dict | None) -> str:
     edate = fb.get("date") or "?"
 
     L: list[str] = []
-    L.append(f"📊 직전 리포트 채점 ({grade} {score}점) · {pdate}→{edate}")
+    L.append(f"📚 어제 예측 → 오늘 결과 ({grade} {score}점) · {pdate}→{edate}")
 
     band = results.get("band") or {}
     if acc.get("band") == "PASS":
@@ -395,12 +402,17 @@ def format_feedback_section(fb: dict | None) -> str:
 
     resistance = results.get("resistance") or {}
     if acc.get("resistance") == "HIT":
-        L.append("✅ 저항선 도달/돌파")
+        pr = resistance.get("predicted")
+        ah = act.get("high")
+        if pr is not None and ah is not None and float(ah) > float(pr) * 1.005:
+            L.append(f"${pr:g} 저항 후보 → ✅ 돌파 (고가 ${ah:g})")
+        else:
+            L.append(f"${pr:g} 저항 후보 → ✅ 도달" if pr is not None else "✅ 저항 후보 도달")
     elif acc.get("resistance") == "FAIL" or resistance.get("predicted") is not None:
         L.append(
-            f"❌ 저항선 미달 (예상 ${resistance['predicted']:g})"
+            f"${resistance['predicted']:g} 저항 후보 → ❌ 미달"
             if resistance.get("predicted") is not None
-            else "❌ 저항선 미달"
+            else "❌ 저항 후보 미달"
         )
 
     direction = results.get("direction") or {}

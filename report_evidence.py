@@ -26,6 +26,234 @@ def _rel(spot: float, strike: float) -> str:
 # 한 줄 제목 (위치 논리 체크)
 # ------------------------------------------------------------------ #
 
+def _nearest(levels: dict, spot: float, side: str) -> float | None:
+    keys = ("near_support", "strong_support") if side == "sup" else (
+        "near_resistance", "strong_resistance"
+    )
+    cands = []
+    for k in keys:
+        for it in levels.get(k) or []:
+            try:
+                s = float(it["strike"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if side == "sup" and s < spot * 0.995:
+                cands.append(s)
+            elif side == "res" and s > spot * 1.005:
+                cands.append(s)
+    if not cands:
+        return None
+    cands.sort(key=lambda x: abs(x - spot))
+    return cands[0]
+
+
+def plain_talk_block(data: dict, base: dict, eventinfo: dict | None = None) -> str:
+    """초보자용 2~3줄. 비유는 1~2문장만."""
+    spot = data.get("spot")
+    if spot is None:
+        return ""
+    spot = float(spot)
+    levels = base.get("levels") or {}
+    if levels.get("low_confidence") or base.get("low_confidence"):
+        return (
+            "💡 쉽게 말하면\n"
+            "오늘은 옵션 대기물량(OI) 숫자가 거의 없어, 지지·저항이라고 단정하지 않습니다.\n"
+            "거래량이 많아 보여도 '누가 샀는지/팔았는지'를 알 수 없어 방향은 열어 둡니다."
+        )
+    nxt = (eventinfo or {}).get("next_session") or {}
+    exp = levels.get("expansion_up") or nxt.get("expansion_up")
+    sup = _nearest(levels, spot, "sup")
+    res = _nearest(levels, spot, "res")
+    key = res or (exp or {}).get("break_level")
+    ticker = data.get("ticker", "")
+
+    L = ["💡 쉽게 말하면"]
+    if key and sup:
+        L.append(
+            f"오늘 {ticker}는 {_fmt_px(sup)}~{_fmt_px(key)} 사이에서 방향을 가늠하는 구간입니다."
+        )
+        if exp and exp.get("zone"):
+            z0, z1 = exp["zone"]
+            mag = exp.get("magnet")
+            extra = f" → {_fmt_px(mag)}까지 열어볼 수 있어요" if mag else ""
+            L.append(
+                f"{_fmt_px(key)}를 거래량과 함께 돌파·유지하면 "
+                f"${z0}~${z1}로 길이 넓어지고{extra}. "
+                f"{_fmt_px(sup)} 아래로 빠지면 상승 이야기는 힘이 빠집니다."
+            )
+        else:
+            L.append(
+                f"{_fmt_px(key)} 위는 아직 '관심 가격'일 뿐 천장도 바닥도 아닙니다. "
+                f"{_fmt_px(sup)}을 지키면 숨 고르기, 이탈하면 조심."
+            )
+    elif key:
+        L.append(
+            f"눈여겨볼 가격은 {_fmt_px(key)}입니다. "
+            "옵션이 몰린 자리라 반응이 나오기 쉽지만, 그 자체가 저항은 아닙니다."
+        )
+        L.append("돌파가 거래량과 함께 유지되는지를 먼저 보세요.")
+    else:
+        L.append(
+            "가까운 옵션 관심 가격이 뚜렷하지 않습니다. "
+            "방향보다 변동 폭이 커질 수 있는지부터 봅니다."
+        )
+    return "\n".join(L[:4])
+
+
+def signals_block(data: dict, base: dict, eventinfo: dict | None = None) -> str:
+    spot = data.get("spot")
+    if spot is None:
+        return ""
+    spot = float(spot)
+    levels = base.get("levels") or {}
+    nxt = (eventinfo or {}).get("next_session") or {}
+    exp = levels.get("expansion_up") or nxt.get("expansion_up")
+    res = _nearest(levels, spot, "res")
+    sup = _nearest(levels, spot, "sup")
+    key = (exp or {}).get("break_level") or res
+    L = ["🚦 오늘의 신호"]
+    if levels.get("low_confidence") or base.get("low_confidence"):
+        L.append("🟡 중립 — 옵션 데이터 신뢰도가 낮아 방향 신호를 내지 않습니다.")
+        return "\n".join(L)
+    if key and exp and exp.get("zone"):
+        z0, z1 = exp["zone"]
+        mag = exp.get("magnet")
+        up = f"{_fmt_px(key)} 돌파 + 거래량 증가 + 유지 → ${z0}~${z1} 확장"
+        if mag:
+            up += f" / 지속 시 {_fmt_px(mag)} 테스트"
+        L.append(f"🟢 상승 조건: {up}")
+    elif key:
+        L.append(f"🟢 상승 조건: {_fmt_px(key)} 돌파가 유지되면 위쪽 관심")
+    else:
+        L.append("🟢 상승 조건: 가까운 관심 가격 돌파·유지")
+    if sup and key:
+        L.append(f"🟡 중립 구간: {_fmt_px(sup)}~{_fmt_px(key)}")
+    elif sup:
+        L.append(f"🟡 중립 구간: {_fmt_px(sup)} 위 소화")
+    else:
+        L.append("🟡 중립 구간: 뚜렷한 박스 없음 — 레벨 반응 대기")
+    if sup:
+        L.append(f"🔴 하락 조건: {_fmt_px(sup)} 이탈 시 상승 시나리오 약화")
+    else:
+        L.append("🔴 하락 조건: 최근 저점 이탈")
+    bb = None
+    try:
+        import price_levels as pl
+
+        bb = pl.band_breakout_signal(base, spot)
+    except Exception:
+        bb = None
+    if bb:
+        L.append(bb["text"])
+    return "\n".join(L)
+
+
+def price_map_block(data: dict, base: dict) -> str:
+    """현재가 중심 가격 지도 (가까운 것 우선)."""
+    spot = data.get("spot")
+    if spot is None:
+        return ""
+    spot = float(spot)
+    levels = base.get("levels") or {}
+    exp = levels.get("expansion_up")
+    def _stars(it: dict) -> str:
+        if it.get("role") == "testing":
+            return "⭐⭐⭐⭐⭐"
+        sc = it.get("score") or 0
+        d = abs(float(it["strike"]) - spot) / spot * 100
+        if d <= 2 and sc >= 0.5:
+            return "⭐⭐⭐⭐⭐"
+        if d <= 5:
+            return "⭐⭐⭐"
+        return "⭐"
+
+    rows: list[tuple[float, str]] = [(spot, f"{_fmt_px(spot)} 현재가")]
+    seen = {round(spot, 2)}
+    for it in levels.get("interest_all") or []:
+        s = float(it["strike"])
+        if abs(s - spot) / spot > 0.12 and not (
+            exp and exp.get("magnet") and abs(s - float(exp["magnet"])) < 0.05
+        ):
+            continue
+        rs = round(s, 2)
+        if rs in seen:
+            continue
+        seen.add(rs)
+        rows.append((s, f"{_fmt_px(s)}  {_stars(it)} {it.get('kind') or '관심 가격'}"))
+    if exp and exp.get("zone"):
+        z0, z1 = exp["zone"]
+        mid = (z0 + z1) / 2
+        if round(mid, 2) not in seen:
+            rows.append((mid, f"${z0}~${z1} 🚀 돌파 시 확장 구간"))
+    if exp and exp.get("magnet"):
+        m = float(exp["magnet"])
+        if round(m, 2) not in seen:
+            rows.append((m, f"{_fmt_px(m)}  ⭐ 주요 관심 가격"))
+        else:
+            # 이미 있으면 라벨만 관심으로 유지 (1순위 아님)
+            pass
+    rows.sort(key=lambda x: -x[0])
+    L = ["📍 오늘의 가격 지도"]
+    if levels.get("low_confidence"):
+        L.append("⚠️ 옵션 데이터 신뢰도 낮음 — 아래는 참고용 관심 가격입니다.")
+    for _, line in rows[:9]:
+        L.append(line)
+    return "\n".join(L)
+
+
+def why_block(data: dict, base: dict, eventinfo: dict | None = None) -> str:
+    levels = base.get("levels") or {}
+    cpr = base.get("call_put_volume_ratio")
+    senti = base.get("sentiment") or ""
+    chg = base.get("price_change_pct")
+    L = ["🔍 왜 이렇게 보나?"]
+    if levels.get("low_confidence") or base.get("low_confidence"):
+        L.append(
+            "OI 데이터가 없어 지지/저항 해석이 제한됩니다. "
+            "거래량만으로 방향을 판단하지 않습니다. V/OI는 계산하지 않았습니다."
+        )
+        return "\n".join(L)
+    ranked = (levels.get("ranked") or [])[:3]
+    if ranked:
+        L.append("가까운 관심 가격부터:")
+        for r in ranked:
+            L.append(
+                f"- {_fmt_px(r['strike'])} ({r.get('label')}, "
+                f"현재가 대비 {r.get('dist_pct')}%, 중요도 {r.get('score')})"
+            )
+    exp = levels.get("expansion_up")
+    if exp and exp.get("note"):
+        L.append(f"상단 확장: {exp['note']}")
+    if cpr is not None:
+        L.append(
+            f"C/P {cpr} → 콜 거래량이 풋보다 약 {cpr:.1f}배 "
+            f"({'구성비일 뿐 방향 신호 아님'})"
+        )
+        if chg is not None and chg <= -3 and cpr >= 1.2:
+            L.append(
+                "콜 우세지만 주가는 하락 — 반등 베팅/콜 매도/헤지가 섞일 수 있어 방향성은 불확실."
+            )
+        elif senti == "변동성 확대 가능성":
+            L.append("콜·풋 극단이 동시에 있어 강세/약세를 억지로 고르지 않습니다.")
+    zd = base.get("zero_dte_date")
+    if zd:
+        L.append(
+            f"⚠️ 오늘({zd}) 만기 옵션이 있어 밴드가 장중 급변할 수 있습니다. "
+            "주간 밴드는 만기일(0DTE)을 빼고 계산했습니다."
+        )
+    return "\n".join(L)
+
+
+def low_confidence_banner(base: dict) -> str:
+    if not (base.get("low_confidence") or (base.get("levels") or {}).get("low_confidence")):
+        return ""
+    return (
+        "⚠️ 옵션 데이터 신뢰도 낮음\n"
+        "OI 데이터가 없어 지지/저항 해석이 제한됩니다. "
+        "거래량만으로 방향을 판단하지 않습니다."
+    )
+
+
 def one_liner(data: dict, base: dict, eventinfo: dict | None = None) -> str:
     ticker = data.get("ticker", "")
     levels = base.get("levels") or {}
@@ -76,31 +304,38 @@ def one_liner(data: dict, base: dict, eventinfo: dict | None = None) -> str:
         if broken_sup:
             parts.append(f"{_fmt_px(broken_sup)} 지지 이탈 후")
         if next_sup:
-            parts.append(f"다음 지지 {_fmt_px(next_sup)} 향해 하락 중")
+            parts.append(f"다음 관심(아래) {_fmt_px(next_sup)}")
         elif next_res:
-            parts.append(f"{_fmt_px(spot)} 마감, 반등 시 {_fmt_px(next_res)} 저항 주시")
+            parts.append(f"{_fmt_px(spot)} 마감, 반등 시 {_fmt_px(next_res)} 주시")
         else:
             parts.append(f"{_fmt_px(spot)} 마감")
         return ", ".join(parts)
 
     # 급등
     if chg is not None and chg >= 3:
+        exp = (levels.get("expansion_up") or {})
+        if exp.get("zone"):
+            z0, z1 = exp["zone"]
+            return (
+                f"{ticker} {chg:.1f}% 급등 — "
+                f"관심가 돌파 시 ${z0}~${z1} 확장 주시"
+            )
         if next_res and spot < next_res:
-            return f"{ticker} {chg:.1f}% 급등, {_fmt_px(next_res)} 저항 테스트 임박"
+            return f"{ticker} {chg:.1f}% 급등, {_fmt_px(next_res)} 관심 가격 테스트"
         if next_res and spot >= next_res:
-            return f"{ticker} {chg:.1f}% 급등 — {_fmt_px(next_res)} 저항 돌파, 추가 상승 여부 주시"
+            return f"{ticker} {chg:.1f}% 급등 — {_fmt_px(next_res)} 돌파, 확장 여부 주시"
         return f"{ticker} {chg:.1f}% 급등, {_fmt_px(spot)} 마감"
 
     # 현재가가 레벨과 거의 같음
     for it in (levels.get("near_support") or []) + (levels.get("strong_support") or []):
         s = it.get("strike")
         if s is not None and abs(float(spot) - float(s)) / float(spot) < 0.005:
-            return f"{ticker} {_fmt_px(spot)} 지지선 테스트 중"
+            return f"{ticker} {_fmt_px(spot)} 핵심 가격 테스트 중"
 
     if next_sup and chg is not None and chg < 0:
-        return f"{ticker} {_fmt_px(spot)} — 다음 지지 {_fmt_px(next_sup)} 주시"
+        return f"{ticker} {_fmt_px(spot)} — 아래 관심 {_fmt_px(next_sup)} 주시"
     if next_res:
-        return f"{ticker} {_fmt_px(spot)} — {_fmt_px(next_res)} 저항 주시"
+        return f"{ticker} {_fmt_px(spot)} — {_fmt_px(next_res)} 관심 가격 주시"
     return f"{ticker} {_fmt_px(spot)} — 옵션 시장 요약"
 
 
@@ -127,29 +362,19 @@ def _pick_level(items: list[dict], spot: float, *, above: bool) -> dict | None:
 
 
 def _level_why(it: dict, *, side: str) -> str:
-    """초보자용 짧은 근거."""
+    """초보자용 짧은 근거. 사겠다/팔겠다 단정 금지."""
     oi = it.get("oi")
     vol = it.get("volume")
-    if side == "res":
-        if oi and vol:
-            return f"콜 거래 {vol:,}·콜 대기(OI) {oi:,}개가 몰린 자리"
-        if oi:
-            return f"콜 대기(OI) {oi:,}개가 몰린 자리"
-        if vol:
-            return f"콜 거래 {vol:,}계약이 몰린 자리"
-        if it.get("flipped_from_support"):
-            return "예전에 지지였다가 뚫려, 지금은 저항으로 바뀐 자리"
-        return "옵션 매물이 모여 있는 자리"
-    # support
-    if oi and vol:
-        return f"풋 거래 {vol:,}·풋 대기(OI) {oi:,}개가 몰린 자리"
+    bits = ["해당 가격에 옵션 포지션이 많이 쌓여 있음"]
     if oi:
-        return f"풋 대기(OI) {oi:,}개가 몰린 자리"
+        bits.append(f"OI {oi:,}")
     if vol:
-        return f"풋 거래 {vol:,}계약이 몰린 자리"
-    if it.get("flipped_from_resist"):
-        return "예전에 저항이었다가 뚫려, 지금은 지지로 바뀐 자리"
-    return "옵션 매수 대기가 모여 있는 자리"
+        bits.append(f"거래 {vol:,}")
+    if it.get("role") == "broken_resist_now_support":
+        return "위 관심가를 넘어 지금은 지지 후보 (돌파 확인)"
+    if it.get("role") == "failed_breakout":
+        return "돌파 후 다시 내려와 실패 가능성"
+    return " · ".join(bits)
 
 
 def _lesson_takeaway(fb: dict | None, ctx: dict | None = None) -> str:
@@ -228,9 +453,9 @@ def key_summary_block(
     levels = enrich_levels(base.get("levels") or {}, spot)
 
     res_pool = (levels.get("near_resistance") or []) + (levels.get("strong_resistance") or [])
-    # OI/거래 큰 쪽을 우선해 '가장 중요한 자리' 선정
+    # 현재가에 가까운 가격 우선, 동률이면 OI/거래
     def _weight(it: dict) -> tuple:
-        return (-(it.get("oi") or 0), -(it.get("volume") or 0), abs(float(it["strike"]) - spot))
+        return (abs(float(it["strike"]) - spot), -(it.get("oi") or 0), -(it.get("volume") or 0))
 
     res_above = [it for it in res_pool if float(it["strike"]) > spot * 1.005]
     res_above.sort(key=_weight)
@@ -246,28 +471,31 @@ def key_summary_block(
     n = 1
     if resist:
         rs = float(resist["strike"])
-        L.append(f"{n}. {_fmt_px(rs)}가 가장 중요한 자리")
+        L.append(f"{n}. {_fmt_px(rs)}가 가까운 관심 가격")
         L.append(f"   {_level_why(resist, side='res')}.")
-        L.append(f"   → 단기 저항이자, 돌파 여부를 확인할 가격입니다.")
+        L.append("   → 저항 후보이며, 돌파·유지 여부를 확인합니다 (천장 아님).")
         n += 1
     if support:
         ss = float(support["strike"])
-        L.append(f"{n}. {_fmt_px(ss)}는 첫 번째 방어선")
+        L.append(f"{n}. {_fmt_px(ss)}는 아래쪽 관심 가격")
         L.append(f"   {_level_why(support, side='sup')}.")
-        L.append(f"   → 이 가격 아래로 내려가면 하락세가 강해질 수 있어 경계합니다.")
+        L.append("   → 지지 후보. 이탈하면 상승 시나리오가 약해질 수 있습니다.")
         n += 1
-    L.append(f"{n}. 이전 분석의 교훈")
-    # 교훈 문장을 2줄로 감싸기
-    lesson = _lesson_takeaway(feedback, learning_context)
-    # 80자 내외로 줄바꿈
-    if len(lesson) > 90:
-        cut = lesson.rfind(" ", 0, 90)
-        if cut < 40:
-            cut = 90
-        L.append(f"   {lesson[:cut].strip()}")
-        L.append(f"   {lesson[cut:].strip()}")
-    else:
-        L.append(f"   {lesson}")
+    if n < 3:
+        L.append(f"{n}. 이전 분석의 교훈")
+        lesson = _lesson_takeaway(feedback, learning_context)
+        if len(lesson) > 90:
+            cut = lesson.rfind(" ", 0, 90)
+            if cut < 40:
+                cut = 90
+            L.append(f"   {lesson[:cut].strip()}")
+            L.append(f"   {lesson[cut:].strip()}")
+        else:
+            L.append(f"   {lesson}")
+        n += 1
+    if n < 3:
+        L.append(f"{n}. 방향은 C/P만으로 단정하지 않습니다")
+        L.append("   주가 반응·거래량·관심 가격을 같이 봅니다.")
     return "\n".join(L)
 
 
@@ -283,40 +511,31 @@ def sentiment_block(base: dict, *, in_earnings: bool = False) -> str:
     if cpr is None:
         return ""
 
-    # 표시용 라벨
-    if senti in ("강세", "약세", "중립"):
-        label = senti
-    elif senti == "반등 시도 국면":
-        label = "혼조 (반등 시도)"
-    elif senti == "양방향 극단 베팅":
-        label = "혼조 (양방향 극단)"
-    else:
-        label = senti
-
-    L = ["🌡️ 시장 온도", f"심리: {label} (콜/풋 비율 {cpr})"]
+    label = senti
+    L = ["🌡️ 시장 온도", f"옵션 거래 구성: {label} (C/P {cpr})"]
     if tags:
         L.append(f"태그: {', '.join(tags)}")
+    L.append(f"C/P {cpr} → 콜 거래량이 풋보다 약 {float(cpr):.1f}배 많음 (방향 신호 아님)")
 
-    if chg is not None and chg <= -5:
+    if base.get("low_confidence"):
+        L.append("해석: 저신뢰 모드 — 옵션 심리는 참고만.")
+    elif senti == "변동성 확대 가능성":
+        L.append("해석: 콜·풋 극단이 동시에 있어 강세/약세를 고르지 않습니다.")
+    elif chg is not None and chg <= -5:
         L.append(
-            f"해석: 주가는 {chg:+.1f}% 급락했지만 옵션은 콜/풋이 "
-            f"{'콜 우세' if cpr >= 1.2 else '비교적 균형' if cpr >= 0.83 else '풋 우세'}."
+            f"해석: 주가 {chg:+.1f}% 급락 + 콜 우세 → "
+            "반등 베팅/콜 매도/헤지 가능. 방향성은 불확실."
         )
-        L.append("  → ① 급락 후 반등 베팅(콜 매수)  ② 콜 매도자가 프리미엄 수취 중")
-        L.append("⚠️ 급락 국면에서 콜/풋 비율만으로 '강세' 판단은 위험.")
     elif chg is not None and chg >= 5:
         L.append(
-            f"해석: 주가 {chg:+.1f}% 급등 + 콜/풋 {cpr}. "
-            "차익실현·헤지 콜/풋이 섞였을 수 있어요."
+            f"해석: 주가 {chg:+.1f}% 급등 + C/P {cpr}. "
+            "차익실현·헤지가 섞였을 수 있어요."
         )
     else:
-        up = round(cpr / (1 + cpr) * 100)
         L.append(
-            f"해석: 옵션 거래량 기준 상승 쪽 ~{up}% / 하락 쪽 ~{100 - up}% "
-            f"→ '{label}'"
+            "해석: 주가 방향·V/OI·OI 변화·행사가 위치·실제 가격 반응을 같이 봅니다."
             + (" (실적 전후라 참고용)" if in_earnings else "")
         )
-        L.append("  (콜=상승에 베팅하는 계약, 풋=하락에 베팅하는 계약의 거래량 비)")
     return "\n".join(L)
 
 
@@ -347,9 +566,9 @@ def enrich_levels(levels: dict | None, spot: float | None) -> dict:
     for it in levels.get("strong_support") or []:
         s = float(it["strike"])
         oi = it.get("oi")
-        meaning = f"\"{_fmt_px(s)}까지 떨어지면 사겠다\"는 대기 매수세"
+        meaning = f"{_fmt_px(s)}에 풋 포지션이 많이 쌓여 있음 (지지 후보, 단정 아님)"
         if oi:
-            meaning += f" (풋 미결제약정 {oi:,}개)"
+            meaning += f" (OI {oi:,}개)"
         if s > spot * 1.005:
             # 이미 위로 뚫림 → 저항 역할
             out["flipped_to_resist"].append(
@@ -359,7 +578,7 @@ def enrich_levels(levels: dict | None, spot: float | None) -> dict:
                     basis=it.get("basis") or "풋 OI 밀집",
                     flipped_from_support=True,
                     note=f"현재가({_fmt_px(spot)}) 위 → 이미 뚫린 지지, 이제 저항 역할",
-                    meaning=f"예전 지지. 반등 시 {_fmt_px(s)} 매물 저항 가능",
+                    meaning=f"예전 아래 관심가. 반등 시 {_fmt_px(s)} 저항 후보",
                 )
             )
         else:
@@ -370,9 +589,9 @@ def enrich_levels(levels: dict | None, spot: float | None) -> dict:
     for it in levels.get("strong_resistance") or []:
         s = float(it["strike"])
         oi = it.get("oi")
-        meaning = f"\"{_fmt_px(s)}에 팔겠다\"는 대기 매도세"
+        meaning = f"{_fmt_px(s)}에 옵션 포지션이 많이 쌓여 있음 (저항 후보, 단정 아님)"
         if oi:
-            meaning += f" (콜 미결제약정 {oi:,}개)"
+            meaning += f" (OI {oi:,}개)"
         if s < spot * 0.995:
             out["flipped_to_support"].append(
                 _copy(
@@ -393,9 +612,9 @@ def enrich_levels(levels: dict | None, spot: float | None) -> dict:
         if s > spot * 1.01:
             continue  # 위쪽은 단기지지로 안 씀
         vol = it.get("volume")
-        meaning = f"현재가 근처 풋 거래 집중 → {_fmt_px(s)} 하방 관심"
+        meaning = f"현재가 근처 풋 거래 집중 → {_fmt_px(s)} 옵션 관심 가격"
         if vol:
-            meaning += f" (거래 {vol:,}계약)"
+            meaning += f" (거래 {vol:,}계약, 지지로 단정하지 않음)"
         out["near_support"].append(
             _copy(it, note=f"현재가 대비 {_rel(spot, s)}", meaning=meaning)
         )
@@ -405,9 +624,9 @@ def enrich_levels(levels: dict | None, spot: float | None) -> dict:
         if s < spot * 0.99:
             continue
         vol = it.get("volume")
-        meaning = f"현재가 근처 콜 거래 집중 → {_fmt_px(s)} 상방 매물"
+        meaning = f"현재가 근처 콜 거래 집중 → {_fmt_px(s)} 옵션 관심 가격"
         if vol:
-            meaning += f" (거래 {vol:,}계약)"
+            meaning += f" (거래 {vol:,}계약, 저항으로 단정하지 않음)"
         out["near_resistance"].append(
             _copy(it, note=f"현재가 대비 {_rel(spot, s)}", meaning=meaning)
         )
@@ -442,40 +661,39 @@ def levels_block(levels: dict | None, spot: float | None = None) -> str:
             lines.append(f"  의미: {it['meaning']}")
         return lines
 
-    L = ["🟢 지지선 (현재가보다 아래 = 하방 방어)"]
+    L = ["🟢 아래 관심 가격 (지지 후보 — OI만으로 지지 단정 안 함)"]
     ss = levels.get("strong_support") or []
     ns = levels.get("near_support") or []
-    # 진짜 아래만
     if spot is not None:
         ss = [x for x in ss if float(x["strike"]) <= float(spot) * 1.005]
         ns = [x for x in ns if float(x["strike"]) <= float(spot) * 1.005]
     if ss:
-        L.append("강한 지지")
+        L.append("확인된 지지" if any(x.get("confirmed") for x in ss) else "지지 후보")
         for it in ss[:2]:
             L.extend(_fmt_item(it))
     if ns:
-        L.append("단기 지지")
+        L.append("가까운 관심 (아래)")
         for it in ns[:2]:
             L.extend(_fmt_item(it))
     if not ss and not ns:
-        L.append("- (현재가 아래 뚜렷한 지지 없음)")
+        L.append("- (현재가 아래 뚜렷한 관심 가격 없음)")
 
-    L.append("🔴 저항선 (현재가보다 위 = 상방 저항)")
+    L.append("🔴 위 관심 가격 (저항 후보 — OI만으로 저항 단정 안 함)")
     nr = levels.get("near_resistance") or []
     sr = levels.get("strong_resistance") or []
     if spot is not None:
         nr = [x for x in nr if float(x["strike"]) >= float(spot) * 0.995]
         sr = [x for x in sr if float(x["strike"]) >= float(spot) * 0.995]
     if nr:
-        L.append("단기 저항")
+        L.append("가까운 관심 (위)")
         for it in nr[:2]:
             L.extend(_fmt_item(it))
     if sr:
-        L.append("강한 저항")
+        L.append("확인된 저항" if any(x.get("confirmed") for x in sr) else "저항 후보")
         for it in sr[:2]:
             L.extend(_fmt_item(it))
     if not nr and not sr:
-        L.append("- (현재가 위 뚜렷한 저항 없음)")
+        L.append("- (현재가 위 뚜렷한 관심 가격 없음)")
     return "\n".join(L)
 
 
@@ -506,15 +724,23 @@ def band_block(base: dict) -> str:
             }
         ]
 
-    L = ["📈 예상 범위 (옵션 시장 기준)"]
+    L = ["📈 예상 범위 (옵션 시장이 가격으로 반영한 예상 변동 범위)"]
     for r in rows:
         date_bit = f"(~{r['date']})" if r.get("date") else ""
+        label = r["label"]
+        if r.get("role") == "zero_dte" or "오늘" in str(label):
+            label = "오늘(만기일)"
         L.append(
-            f"{r['label']}{date_bit}: ${_fmt_num(r['lower'])} ~ ${_fmt_num(r['upper'])} "
+            f"{label}{date_bit}: ${_fmt_num(r['lower'])} ~ ${_fmt_num(r['upper'])} "
             f"(±{r.get('band_pct')}%)"
         )
     L.append("계산: 현재가 ± ATM 스트래들(같은 행사가 콜+풋 가격 합)")
-    L.append("의미: 옵션 시장이 매긴 '흔히 움직일 수 있는' 대략 범위 (확정 아님)")
+    L.append("의미: 천장/바닥이 아님. 흔히 움직일 수 있다고 옵션이 매긴 대략 범위.")
+    if base.get("zero_dte_date"):
+        L.append(
+            f"⚠️ 오늘 만기({base['zero_dte_date']}) 옵션이 포함될 수 있어 "
+            "밴드가 장중 급변할 수 있습니다. 위 이번주는 0DTE를 제외한 값입니다."
+        )
     tip = bt.get("interpretation") or "→ 만기가 멀수록 불확실성(밴드) 확대"
     if not tip.startswith("→"):
         tip = f"→ {tip}"
@@ -705,7 +931,7 @@ def learning_section(ticker: str, today_feedback: dict | None = None, ctx: dict 
 # ------------------------------------------------------------------ #
 
 _SECTION_NEXT = (
-    r"(?=^[\U0001F300-\U0001FAFF⭐📊🎯💰🚨🌡️🟢🔴📈🔮⚠️📰📚]|^⚠️ 이 리포트|\Z)"
+    r"(?=^[\U0001F300-\U0001FAFF⭐📊🎯💰🚨🌡️🟢🔴📈🔮⚠️📰📚💡🚦📍🔍]|^⚠️ 이 리포트|\Z)"
 )
 
 
@@ -732,26 +958,70 @@ def enforce_all(
     scenarios: str | None,
     checkpoints: str | None,
     learning: str | None,
+    plain_talk: str | None = None,
+    signals: str | None = None,
+    price_map: str | None = None,
+    why: str | None = None,
+    banner: str | None = None,
 ) -> str:
     t = narrative or ""
-    if title:
+    # 🎯 한줄요약 중복 제거: 첫 줄만 남김
+    titles = list(re.finditer(r"(?m)^🎯\s.*$", t))
+    if title and titles:
+        first = titles[0]
+        t = t[: first.start()] + f"🎯 {title}" + t[first.end():]
+        titles = list(re.finditer(r"(?m)^🎯\s.*$", t))
+        extra = titles[1:]
+        for m in reversed(extra):
+            t = t[: m.start()] + t[m.end():]
+    elif title:
         t = re.sub(r"(?m)^🎯\s.*$", f"🎯 {title}", t, count=1)
+
+    def _insert_after_title(block: str) -> None:
+        nonlocal t
+        m = re.search(r"(?m)^📊\s.*$", t)
+        if m:
+            t = t[: m.end()] + "\n\n" + block.strip() + "\n" + t[m.end():]
+        else:
+            t = block.strip() + "\n\n" + t
+
+    if banner and "옵션 데이터 신뢰도 낮음" not in t:
+        _insert_after_title(banner)
+
+    if plain_talk:
+        t = replace_section(t, r"💡", plain_talk)
+        if "💡 쉽게 말하면" not in t:
+            # 제목 다음, 가격 앞
+            if "💰 가격" in t:
+                t = t.replace("💰 가격", plain_talk.strip() + "\n\n💰 가격", 1)
+            else:
+                _insert_after_title(plain_talk)
+
+    if signals:
+        t = replace_section(t, r"🚦", signals)
+        if "🚦 오늘의 신호" not in t:
+            if "📍" in t:
+                t = t.replace("📍", signals.strip() + "\n\n📍", 1)
+            elif "💰 가격" in t:
+                # 가격 뒤에
+                t = replace_section(t, r"💰", "💰 가격\n")
+                idx = t.find("💰 가격")
+                # append after price section via replace
+                t = t.replace("📍", signals.strip() + "\n\n📍", 1) if "📍" in t else (
+                    t + "\n\n" + signals.strip() + "\n"
+                )
+
+    if price_map:
+        t = replace_section(t, r"📍", price_map)
+        if "📍 오늘의 가격 지도" not in t:
+            t = t.rstrip() + "\n\n" + price_map.strip() + "\n"
+
     if key_summary:
         t = replace_section(t, r"⭐", key_summary)
-        if "⭐ 오늘의 핵심" not in t:
-            # 🎯 한 줄 다음, 없으면 💰 앞에 삽입
-            m = re.search(r"(?m)^🎯\s.*$", t)
-            if m:
-                insert_at = m.end()
-                t = t[:insert_at] + "\n\n" + key_summary.strip() + "\n" + t[insert_at:]
-            elif "💰 가격" in t:
-                t = t.replace("💰 가격", key_summary.strip() + "\n\n💰 가격", 1)
-            else:
-                t = key_summary.strip() + "\n\n" + t
+
     if temp:
         t = replace_section(t, r"🌡️", temp)
     if levels:
-        # 🟢부터 🔴까지 한 덩어리로
         pat = re.compile(
             rf"(?m)^🟢[^\n]*\n(?:.*?\n)*?^🔴[^\n]*\n(?:.*?\n)*?{_SECTION_NEXT}",
         )
@@ -760,21 +1030,20 @@ def enforce_all(
             t = pat.sub(block, t, count=1)
         else:
             t = replace_section(t, r"🟢", levels)
+    if why:
+        t = replace_section(t, r"🔍", why)
+        if "🔍 왜 이렇게 보나" not in t:
+            t = t.rstrip() + "\n\n" + why.strip() + "\n"
     if band:
         t = replace_section(t, r"📈", band)
     if scenarios:
         t = replace_section(t, r"🔮", scenarios)
     if learning:
-        # 체크포인트 앞에 삽입/교체
         t = replace_section(t, r"📚", learning)
-        if "📚 과거 데이터 학습" not in t:
-            if "🎯 오늘 체크포인트" in t:
-                t = t.replace("🎯 오늘 체크포인트", learning.strip() + "\n\n🎯 오늘 체크포인트", 1)
-            else:
-                t = t.rstrip() + "\n\n" + learning.strip() + "\n"
+        if "📚" not in t:
+            t = t.rstrip() + "\n\n" + learning.strip() + "\n"
     if checkpoints:
         t = replace_section(t, r"🎯 오늘 체크포인트", checkpoints)
-        # 헤더가 '🎯 오늘'이 아닐 수도
         if "🎯 오늘 체크포인트" not in t and checkpoints:
             t = replace_section(t, r"🎯", checkpoints)
     t = re.sub(r"\n{3,}", "\n\n", t)

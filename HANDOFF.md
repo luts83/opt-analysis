@@ -23,18 +23,17 @@ make report-preview                   # 스모크
 
 복사 후 `./scripts/doctor.sh`로 확인.
 
-## 현재 상태 (2026-08-07)
+## 현재 상태 (2026-08-13)
 
-- `main` HEAD: 일일 스냅샷 커밋까지 반영된 상태. 워킹트리 클린 기준.
-- 동작 중인 기능: 일일 리포트, AI 해설, 초보자용 핵심 3가지, 근거·학습 강제, 텔레그램 `/report` 봇, 주간 검증, Railway 배포.
-- 로컬 마찰 제거: `scripts/setup.sh`, `scripts/doctor.sh`, `Makefile`, `AGENTS.md`, 이 파일.
+- 일일 리포트 해석 개편 진행 중 (미커밋): OI/거래량≠지지저항, 돌파 후 확장, 밴드≠천장, 가까운 가격 우선, 저신뢰/0DTE, C/P 과해석 방지, 뉴스 필터, 초보자 `💡 쉽게 말하면`+가격 지도.
+- 테스트: `python test_expiry_selector.py` + `python test_price_levels.py` (IREN 8/12→8/13 $49.19 케이스).
+- Railway 재배포는 커밋·푸시 후.
 
 ## 다음에 할 일 (후보)
 
-- [ ] (비어 있음 — 작업 시작하면 여기 체크/메모)
-- 예: `/weekly` 텔레그램 명령, README Phase 문구 정리, 종목 추가 등
+- [ ] 실제 `/report IREN` 로 문구 확인 후 커밋
+- [ ] 메일 발송 끄기(`settings.json` email.enabled)는 아직 미적용
 
 ## 방금 한 일 / 주의
 
-- (세션 끝낼 때 짧게 적기)
-- 예: "리포트 X 섹션 수정 중, 미커밋" / "Railway 재배포 필요"
+- `price_levels.py` 신규. 리포트 순서: 쉽게말하면 → 가격 → 신호 → 지도 → 시나리오 → 근거.

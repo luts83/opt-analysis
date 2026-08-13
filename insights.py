@@ -3,7 +3,7 @@
 - 1순위: ChatGPT(OpenAI) 로 일반인용 친근한 리포트 생성.
 - 폴백: API 키 없음/실패 시 규칙 기반 리포트.
 - 핵심 섹션은 시스템이 근거 문장으로 강제 교체.
-- 맨 위: ⭐ 오늘의 핵심 3가지 (초보자용).
+- 맨 위: 💡 쉽게 말하면 + 💰 가격.
 """
 from __future__ import annotations
 
@@ -28,19 +28,16 @@ def build_friendly_fallback(
     nxt = (eventinfo or {}).get("next_session") or {}
     fb = feedback or data.get("prediction_feedback")
     ctx = learning_context or data.get("learning_context")
-    spot = data.get("spot")
 
     L: list[str] = []
     L.append(f"📊 오늘의 {data['ticker']} 옵션 시장 이야기 - {data['date']}")
     L.append("")
-    L.append(f"🎯 {ev.one_liner(data, base, eventinfo)}")
-    L.append("")
-
-    key = ev.key_summary_block(data, base, eventinfo, fb, ctx)
-    if key:
-        L.append(key)
+    banner = ev.low_confidence_banner(base)
+    if banner:
+        L.append(banner)
         L.append("")
-
+    L.append(ev.plain_talk_block(data, base, eventinfo))
+    L.append("")
     L.append(market_clock.format_price_line(data))
     L.append("")
 
@@ -54,26 +51,26 @@ def build_friendly_fallback(
         L.append(price["note"])
         L.append("")
 
-    temp = ev.sentiment_block(base, in_earnings=in_earnings)
-    if temp:
-        L.append(temp)
-        L.append("")
-
-    if base.get("oi_source") and "전일" in str(base.get("oi_source")):
-        L.append("※ 강한 지지/저항 OI는 전일 기준.")
-        L.append("")
-
-    L.append(ev.levels_block(base.get("levels"), spot))
+    L.append(ev.signals_block(data, base, eventinfo))
     L.append("")
-
-    band = ev.band_block(base)
-    if band:
-        L.append(band)
-        L.append("")
+    L.append(ev.price_map_block(data, base))
+    L.append("")
 
     scen = ev.format_scenarios(nxt)
     if scen:
         L.append(scen)
+        L.append("")
+
+    L.append(ev.why_block(data, base, eventinfo))
+    L.append("")
+
+    if base.get("oi_source") and "전일" in str(base.get("oi_source")):
+        L.append("※ OI는 전일 기준(오늘 미갱신). 관심 가격 참고용.")
+        L.append("")
+
+    band = ev.band_block(base)
+    if band:
+        L.append(band)
         L.append("")
 
     unusual: list[str] = []
@@ -89,15 +86,12 @@ def build_friendly_fallback(
             L.append(f"- {u}")
         L.append("")
 
-    # 채점·학습은 핵심 요약 뒤·상세 끝에 (초보자는 위에서 끝낼 수 있게)
     fb_text = learning.format_feedback_section(fb)
     if fb_text:
         L.append(fb_text.rstrip())
         L.append("")
 
     L.append(ev.learning_section(data.get("ticker", ""), fb, ctx))
-    L.append("")
-    L.append(ev.format_checkpoints(nxt))
     L.append("")
     L.append("⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다.")
     return "\n".join(L)
@@ -137,17 +131,21 @@ def build_narrative(
     text = report_polish.polish_narrative(text)
     text = market_clock.apply_session_to_narrative(text, data, eventinfo)
 
-    key = ev.key_summary_block(data, base, eventinfo, fb, ctx)
     text = ev.enforce_all(
         text,
         title=ev.one_liner(data, base, eventinfo),
-        key_summary=key,
+        key_summary=None,
         temp=ev.sentiment_block(base, in_earnings=in_earnings),
         levels=ev.levels_block(base.get("levels"), spot),
         band=ev.band_block(base),
         scenarios=ev.format_scenarios(nxt),
-        checkpoints=ev.format_checkpoints(nxt),
+        checkpoints=None,
         learning=ev.learning_section(data.get("ticker", ""), fb, ctx),
+        plain_talk=ev.plain_talk_block(data, base, eventinfo),
+        signals=ev.signals_block(data, base, eventinfo),
+        price_map=ev.price_map_block(data, base),
+        why=ev.why_block(data, base, eventinfo),
+        banner=ev.low_confidence_banner(base),
     )
     text = events.with_linked_news(text, eventinfo)
 
@@ -155,7 +153,7 @@ def build_narrative(
     fb_block = learning.format_feedback_section(fb)
     if fb_block:
         text = re.sub(
-            r"(?m)^📊\s*(직전 리포트 채점|어제 예측 vs 오늘 실제).*?(?=^📊 오늘의|^⭐ |^💰 |^🚨 |^🌡️ |^🟢 |^📈 |^🔮 |^📚 |^⚠️ |^🎯 오늘|\Z)",
+            r"(?m)^(?:📊\s*(?:직전 리포트 채점|어제 예측 vs 오늘 실제)|📚 어제 예측).*?(?=^📊 오늘의|^⭐ |^💰 |^🚨 |^🌡️ |^🟢 |^📈 |^🔮 |^📚 |^⚠️ |^🎯 오늘|^💡 |^🚦 |^📍 |^🔍 |\Z)",
             "",
             text,
             count=1,

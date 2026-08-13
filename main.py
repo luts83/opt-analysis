@@ -54,7 +54,9 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         metrics.enrich_contracts(data, prev_oi, history, oi_real=oi_real)
         base = metrics.build_base_metrics(data, prev=prev_oi, oi_available=oi_available)
         base["oi_source"] = oi_source
-        base["levels"] = metrics.build_levels(base, data["spot"])
+        base["levels"] = metrics.build_levels(
+            base, data["spot"], data=data, prev=prev_any
+        )
         base["band_trend"] = metrics.build_band_trend(base)
         data["metrics"] = base
 
@@ -82,6 +84,10 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
             today_ohlc["low"] = min(
                 today_ohlc.get("low") or data["spot"], data["spot"]
             )
+        base["levels"] = metrics.build_levels(
+            base, data["spot"], data=data, prev=prev_any, today_ohlc=today_ohlc
+        )
+        data["metrics"] = base
         feedback = learning.grade_yesterday(ticker, prev_any, today_ohlc)
         if feedback and feedback.get("available") and save:
             learning.save_prediction_record(feedback)

@@ -31,6 +31,7 @@
 | `data_fetch.py` | yfinance 옵션/가격 |
 | `expiry_selector.py` | 이번주/다음주/월간 만기 |
 | `metrics.py` | V/OI, 밴드, OI 밀집, anomalies |
+| `price_levels.py` | 관심 가격·역할 전환·상단 확장 (OI≠지지저항) |
 | `insights.py` / `llm.py` | 규칙 인사이트 + OpenAI 해설 |
 | `learning.py` | 일일 예측 채점·자기학습 |
 | `report_builder.py` / `report_evidence.py` / `report_polish.py` | 리포트 조립·근거·다듬기 |

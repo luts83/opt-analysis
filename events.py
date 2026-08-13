@@ -169,18 +169,64 @@ def _to_date(x) -> dt.date | None:
 # 2. 뉴스 헤드라인
 # ------------------------------------------------------------------ #
 
+_NEWS_ALIASES = {
+    "IREN": ["iren", "iris energy", "iris"],
+    "TSLA": ["tsla", "tesla", "musk", "cybertruck", "optimus"],
+    "SPCX": ["spcx"],
+    "KLAR": ["klar", "klarna"],
+}
+
+
+def _news_needles(ticker: str, t=None) -> list[str]:
+    tk = (ticker or "").upper()
+    needles = [tk.lower(), *(_NEWS_ALIASES.get(tk) or [])]
+    extra = getattr(config, "NEWS_ALIASES", None) or {}
+    if isinstance(extra, dict):
+        needles.extend(str(x).lower() for x in (extra.get(tk) or extra.get(ticker) or []))
+    if t is not None:
+        try:
+            info = t.info or {}
+            for k in ("shortName", "longName", "displayName"):
+                v = info.get(k)
+                if v:
+                    needles.append(str(v).lower())
+        except Exception:
+            pass
+    out, seen = [], set()
+    for n in needles:
+        n = (n or "").strip().lower()
+        if n and n not in seen and len(n) >= 3:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
+def news_is_relevant(item: dict, ticker: str, t=None) -> bool:
+    needles = _news_needles(ticker, t)
+    blob = " ".join(
+        str(item.get(k) or "")
+        for k in ("title", "publisher", "summary", "snippet", "link")
+    ).lower()
+    if any(n in blob for n in needles):
+        return True
+    related = item.get("related_tickers") or item.get("relatedTickers") or []
+    tk = (ticker or "").upper()
+    return tk in {str(x).upper() for x in related}
+
+
 def get_news(t, limit: int | None = None) -> list[dict]:
-    """최신 뉴스 헤드라인 [{title, publisher, published, link}] (실패 시 빈 리스트)."""
+    """종목 관련 뉴스만. 무관하면 빈 리스트."""
     limit = limit or config.NEWS_COUNT
     try:
         raw = t.news or []
+        ticker = getattr(t, "ticker", "") or ""
     except Exception:
         return []
 
     items: list[dict] = []
     for n in raw:
         item = _parse_news_item(n)
-        if item and item["title"]:
+        if item and item["title"] and news_is_relevant(item, ticker, t):
             items.append(item)
     items.sort(key=lambda x: x.get("published") or "", reverse=True)
     return items[:limit]
@@ -220,6 +266,7 @@ def _parse_news_item(n: dict) -> dict | None:
         "publisher": n.get("publisher"),
         "published": published,
         "link": _clean_url(n.get("link") or ""),
+        "related_tickers": n.get("relatedTickers") or n.get("related_tickers") or [],
     }
 
 
@@ -271,9 +318,9 @@ def with_linked_news(narrative: str, eventinfo: dict | None) -> str:
     news = (eventinfo or {}).get("news") or []
     polished = report_polish.polish_narrative(narrative or "")
     if not news:
-        return polished
-
-    block = "📰 관련 뉴스\n" + "\n".join(format_news_lines(news, limit=3))
+        block = "📰 관련 뉴스\n- 오늘 유의미한 종목 관련 뉴스 없음"
+    else:
+        block = "📰 관련 뉴스\n" + "\n".join(format_news_lines(news, limit=3))
     return report_polish.inject_news_once(polished, block)
 
 
@@ -497,11 +544,7 @@ def next_session_scenarios(
     for r in (base.get("top_call_volume") or [])[:8]:
         resist_cands.append(float(r["strike"]))
 
-    # 밴드 하단/상단도 시나리오 1차 레벨로 포함 (현재가에 더 가까울 수 있음)
-    if st.get("lower") is not None:
-        support_cands.append(float(st["lower"]))
-    if st.get("upper") is not None:
-        resist_cands.append(float(st["upper"]))
+    # 밴드는 천장/바닥이 아니므로 지지·저항 후보에 넣지 않음.
 
     supports_below = sorted(
         {s for s in support_cands if s < spot * 0.995 and (spot - s) <= max_dist},
@@ -536,21 +579,17 @@ def next_session_scenarios(
         for item in near_sup_list + strong_sup_list:
             if abs(float(item["strike"]) - strike) < 0.02:
                 oi = item.get("oi")
-                return f"풋 OI {oi:,}개 밀집" if oi else "풋 지지 후보"
+                return f"풋 포지션 밀집(OI {oi:,}) · 지지 후보" if oi else "아래 관심 가격"
         for item in near_res_list + strong_res_list:
             if abs(float(item["strike"]) - strike) < 0.02:
                 oi = item.get("oi")
                 vol = item.get("volume")
                 if oi:
-                    return f"콜 OI {oi:,}개 밀집"
+                    return f"콜 포지션 밀집(OI {oi:,}) · 저항 후보"
                 if vol:
-                    return f"콜 거래 {vol:,}계약 집중"
-                return "콜 저항 후보"
-        if st.get("lower") is not None and abs(float(st["lower"]) - strike) < 0.6:
-            return "이번주 옵션 밴드 하단"
-        if st.get("upper") is not None and abs(float(st["upper"]) - strike) < 0.6:
-            return "이번주 옵션 밴드 상단"
-        return "옵션 거래·OI 후보" if side else "레벨"
+                    return f"콜 거래 {vol:,} · 옵션 관심 가격"
+                return "위 관심 가격"
+        return "옵션 관심 가격" if side else "레벨"
 
     regular = (data or {}).get("regular_close")
     extended = (data or {}).get("extended_price")
@@ -577,15 +616,28 @@ def next_session_scenarios(
                 f"정규장 종가 ${regular:g} → 애프터마켓 ${extended:g} ({gap_pct:+.1f}%, {direction})."
             )
 
-    bearish = senti in ("약세", "반등 시도 국면", "양방향 극단 베팅", "차익실현/헤지 국면") or (
-        change_pct is not None and change_pct <= -5
-    )
-    bullish = senti == "강세" and not bearish
+    bearish = senti in (
+        "약세", "풋 거래 우세", "반등 시도 국면", "양방향 극단 베팅",
+        "변동성 확대 가능성", "차익실현/헤지 국면", "차익실현/헤지 혼재",
+        "방향 불확실 (콜 우세·주가 급락)",
+    ) or (change_pct is not None and change_pct <= -5)
+    bullish = senti in ("강세", "콜 거래 우세") and not bearish
+    vol_expand = senti == "변동성 확대 가능성"
 
     reclaim_bit = f" → ${reclaim:g} 탈환(옛 지지→저항)" if reclaim else ""
     why_ps = _why_level(primary_support, "sup")
     why_ns = _why_level(next_support, "sup")
     why_pr = _why_level(primary_resist, "res")
+
+    exp_up = (levels.get("expansion_up") or {})
+    if not exp_up:
+        try:
+            import price_levels as pl
+
+            rows = pl._merge_interest_rows(base)
+            exp_up = pl.detect_upside_expansion(spot, rows) or {}
+        except Exception:
+            exp_up = {}
 
     candidates: list[dict] = [
         {
@@ -594,27 +646,46 @@ def next_session_scenarios(
                 f"{when} ${primary_support:g} 하회 시 → ${next_support:g} 도전"
             ),
             "watch": f"${primary_support:g}({why_ps}) 이탈이면 하락 가속.",
-            "evidence": f"다음 방어 ${next_support:g} ({why_ns})",
-            "rank_bias": 4 if bearish else (2 if senti == "중립" else 1),
-        },
-        {
-            "name": "반등 시도",
-            "condition": f"{when} ${primary_resist:g} 돌파{reclaim_bit}",
-            "watch": (
-                f"숏커버·반등 가능."
-                + (f" 다음 저항 ${secondary_resist:g}." if secondary_resist else "")
-            ),
-            "evidence": f"${primary_resist:g} ({why_pr})",
-            "rank_bias": 3 if bullish else (2 if senti in ("반등 시도 국면", "중립") else 1),
+            "evidence": f"다음 관심 ${next_support:g} ({why_ns})",
+            "rank_bias": 4 if bearish and not vol_expand else (2 if senti in ("중립", "콜·풋 균형") else 1),
         },
         {
             "name": "횡보",
             "condition": f"{when} ${primary_support:g}~${primary_resist:g} 박스권",
             "watch": "돌파/이탈 전까진 방향 단정하지 않기.",
-            "evidence": "가까운 지지·저항 사이 소화 구간",
-            "rank_bias": 3 if senti == "중립" and not bearish else 2,
+            "evidence": "가까운 관심 가격 사이 소화 구간",
+            "rank_bias": 3 if senti in ("중립", "콜·풋 균형") and not bearish else 2,
         },
     ]
+    if exp_up and exp_up.get("zone"):
+        z0, z1 = exp_up["zone"]
+        mag = exp_up.get("magnet")
+        br = exp_up.get("break_level") or primary_resist
+        mag_bit = f" → 강세 지속 시 ${mag:g} 테스트" if mag else ""
+        candidates.append(
+            {
+                "name": "상단 확장",
+                "condition": (
+                    f"{when} ${br:g} 돌파 + 거래량 증가 + 돌파 유지"
+                ),
+                "watch": f"${z0}~${z1} 상단 확장{mag_bit}.",
+                "evidence": exp_up.get("note") or "연속된 위쪽 콜 관심 가격",
+                "rank_bias": 5 if bullish else (4 if not bearish else 3),
+            }
+        )
+    else:
+        candidates.append(
+            {
+                "name": "상승",
+                "condition": f"{when} ${primary_resist:g} 돌파{reclaim_bit}",
+                "watch": (
+                    "돌파 유지 시 위쪽 관심."
+                    + (f" 다음 관심 ${secondary_resist:g}." if secondary_resist else "")
+                ),
+                "evidence": f"${primary_resist:g} ({why_pr})",
+                "rank_bias": 3 if bullish else (2 if not bearish else 1),
+            }
+        )
 
     if gap_pct is not None and abs(gap_pct) >= 1.5:
         for c in candidates:
@@ -696,6 +767,7 @@ def next_session_scenarios(
         "scenarios": scenarios,
         "checkpoints": checks,
         "action_hint": action_hint,
+        "expansion_up": exp_up or None,
     }
 
 

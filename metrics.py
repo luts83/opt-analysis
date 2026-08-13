@@ -125,23 +125,23 @@ def sentiment_from_ratio(
     *,
     both_side_extreme: bool = False,
 ) -> str:
-    """C/P 비율 + 주가 변동으로 시장 온도 라벨.
+    """C/P 는 방향 신호가 아니라 거래 구성. 극단이 겹치면 변동성 우선.
 
-    급락(-5%↓) 중 C/P 상승은 '강세'가 아니라 반등/양방향 베팅으로 본다.
+    급락(-5%↓) 중 C/P 상승은 '강세'가 아니라 반등/헤지/콜매도 혼재로 본다.
     """
-    if both_side_extreme and change_pct is not None and abs(change_pct) >= 5:
-        return "양방향 극단 베팅"
+    if both_side_extreme:
+        return "변동성 확대 가능성"
     if change_pct is not None and change_pct <= -5 and ratio is not None and ratio >= 1.2:
-        return "반등 시도 국면"
+        return "방향 불확실 (콜 우세·주가 급락)"
     if change_pct is not None and change_pct >= 5 and ratio is not None and ratio <= 0.83:
-        return "차익실현/헤지 국면"
+        return "차익실현/헤지 혼재"
     if ratio is None:
         return "중립"
     if ratio >= 1.2:
-        return "강세"
+        return "콜 거래 우세"
     if ratio <= 0.83:
-        return "약세"
-    return "중립"
+        return "풋 거래 우세"
+    return "콜·풋 균형"
 
 
 def detect_both_side_oi_surge(anomalies: list[dict] | None) -> bool:
@@ -329,24 +329,31 @@ def build_base_metrics(
             voi_candidates.append(entry)
 
     voi_candidates.sort(key=lambda x: x["voi"], reverse=True)
+    if not oi_available:
+        voi_candidates = []  # OI 없으면 V/OI 계산·표시하지 않음
+
+    zd = None
+    if "zero_dte" in data.get("expiries", {}):
+        zd = data["expiries"]["zero_dte"].get("date")
 
     senti = sentiment_from_ratio(ratio, change_pct)
     return {
         "call_put_volume_ratio": round(ratio, 3) if ratio is not None else None,
         "sentiment": senti,
-        "sentiment_raw": sentiment_from_ratio(ratio),  # C/P만 본 순수 라벨
+        "sentiment_raw": sentiment_from_ratio(ratio),  # C/P만 본 구성 라벨
         "price_change_pct": change_pct,
         "sentiment_tags": [],
         "sentiment_rule": (
-            "콜/풋>=1.2 강세 / <=0.83 약세. "
-            "단 급락(-5%↓)+고C/P는 '반등 시도 국면', "
-            "콜·풋 OI 동시 유입은 '양방향 극단 베팅'+변동성 확대"
+            "C/P는 방향이 아니라 콜/풋 거래 구성비. "
+            "급락+콜우세는 방향 불확실, 콜·풋 극단 동시 → 변동성 확대 우선"
         ),
         "total_call_volume": call_vol,
         "total_put_volume": put_vol,
         "total_volume": _total_volume(data),
         "total_open_interest": total_open_interest(data),
         "oi_available": oi_available,
+        "low_confidence": (not oi_available) or total_open_interest(data) <= 0,
+        "zero_dte_date": zd,
         "expiry_metrics": expiry_metrics,
         "top_voi": voi_candidates[: config.VOI_TOP_N],
         "top_call_volume": _volume_rank(call_vol_rows, config.TOP_VOLUME_N),
@@ -355,15 +362,21 @@ def build_base_metrics(
 
 
 def apply_sentiment_tags(base: dict, anomalies: list[dict] | None) -> dict:
-    """OI 양방향 급변 등을 반영해 sentiment / tags 보정."""
+    """OI/V/OI 양방향 극단이면 강세·약세를 고르지 않고 변동성 확대."""
+    import price_levels
+
     change_pct = base.get("price_change_pct")
     ratio = base.get("call_put_volume_ratio")
     tags: list[str] = list(base.get("sentiment_tags") or [])
-    if detect_both_side_oi_surge(anomalies):
-        tags.append("변동성 확대 예상")
+    both = detect_both_side_oi_surge(anomalies) or price_levels.detect_both_side_voi_extreme(base)
+    if both:
+        tags.append("변동성 확대 가능성")
         base["sentiment"] = sentiment_from_ratio(
             ratio, change_pct, both_side_extreme=True
         )
+    if price_levels.is_low_confidence(base):
+        tags.append("저신뢰(OI 없음)")
+        base["low_confidence"] = True
     base["sentiment_tags"] = tags
     return base
 
@@ -456,51 +469,19 @@ def build_trend(history: list[dict], today: dict) -> list[dict]:
 # 지지/저항 레벨 (강한 OI vs 단기 거래량)
 # ------------------------------------------------------------------ #
 
-def build_levels(base: dict, spot: float) -> dict:
-    """강한 지지/저항(OI 밀집) + 단기 지지/저항(현재가 근처 거래량)."""
-    near = (base.get("expiry_metrics") or {}).get("this_week") or {}
-    call_oi = near.get("call_oi_clusters") or []
-    put_oi = near.get("put_oi_clusters") or []
+def build_levels(
+    base: dict,
+    spot: float,
+    data: dict | None = None,
+    prev: dict | None = None,
+    today_ohlc: dict | None = None,
+) -> dict:
+    """관심 가격 맵 (OI/거래량 ≠ 지지·저항 단정)."""
+    import price_levels
 
-    strong_resist = [
-        {"strike": c["strike"], "oi": c["oi"], "kind": "강한저항", "basis": "콜 OI 밀집"}
-        for c in call_oi[:2]
-    ]
-    strong_support = [
-        {"strike": p["strike"], "oi": p["oi"], "kind": "강한지지", "basis": "풋 OI 밀집"}
-        for p in put_oi[:2]
-    ]
-
-    # 단기: 현재가 아래 가장 가까운 풋 / 위 가장 가까운 콜 (거래량 상위 풀)
-    puts = sorted(
-        [r for r in (base.get("top_put_volume") or []) if r["strike"] <= spot * 1.01],
-        key=lambda r: -r["strike"],
+    return price_levels.build_levels(
+        base, spot, data=data, prev=prev, today_ohlc=today_ohlc
     )
-    calls = sorted(
-        [r for r in (base.get("top_call_volume") or []) if r["strike"] >= spot * 0.99],
-        key=lambda r: r["strike"],
-    )
-    # ±12% 안을 우선, 없으면 가장 가까운 것
-    near_puts = [r for r in puts if r["strike"] >= spot * 0.88] or puts[:1]
-    near_calls = [r for r in calls if r["strike"] <= spot * 1.12] or calls[:1]
-    near_support = (
-        [{"strike": near_puts[0]["strike"], "volume": near_puts[0]["volume"],
-          "kind": "단기지지", "basis": "현재가 근처 풋 거래 집중"}]
-        if near_puts else []
-    )
-    near_resist = (
-        [{"strike": near_calls[0]["strike"], "volume": near_calls[0]["volume"],
-          "kind": "단기저항", "basis": "현재가 근처 콜 거래 집중"}]
-        if near_calls else []
-    )
-
-    return {
-        "strong_support": strong_support,
-        "strong_resistance": strong_resist,
-        "near_support": near_support,
-        "near_resistance": near_resist,
-        "has_oi_levels": bool(strong_support or strong_resist),
-    }
 
 
 # ------------------------------------------------------------------ #
@@ -511,7 +492,11 @@ def build_band_trend(base: dict) -> dict | None:
     """이번주/다음주/월간 상·하단 확장을 한 줄로 해석."""
     em = base.get("expiry_metrics") or {}
     rows = []
-    for role, label in (("this_week", "이번주"), ("next_week", "2주내"), ("monthly", "1개월")):
+    zd = (base.get("zero_dte_date") or "").strip()
+    labels = (("this_week", "이번주"), ("next_week", "2주내"), ("monthly", "1개월"))
+    if zd:
+        labels = (("this_week", "이번주(0DTE 제외)"), ("next_week", "2주내"), ("monthly", "1개월"))
+    for role, label in labels:
         st = (em.get(role) or {}).get("straddle")
         if not st:
             continue

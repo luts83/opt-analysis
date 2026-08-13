@@ -135,27 +135,33 @@ def support_result(support, actual_low) -> dict | None:
 
 def direction_result(sentiment, weekly_return) -> dict:
     # 특수 라벨은 방향 단정으로 보지 않음
-    if sentiment in ("반등 시도 국면", "양방향 극단 베팅", "차익실현/헤지 국면"):
+    special = (
+        "반등 시도 국면", "양방향 극단 베팅", "차익실현/헤지 국면",
+        "차익실현/헤지 혼재", "변동성 확대 가능성",
+        "방향 불확실 (콜 우세·주가 급락)",
+    )
+    bullish_set = ("강세", "콜 거래 우세")
+    bearish_set = ("약세", "풋 거래 우세")
+    if sentiment in special:
         match = abs(weekly_return) >= 2  # 큰 움직임이 있으면 '국면 인식' 성공 쪽
-        # 학습용: 특수 라벨은 방향 PASS/FAIL보다 중립에 가깝게
         score = 60 if match else 40
         verdict = "특수국면 인식" if match else "특수국면(움직임 작음)"
-    elif sentiment == "강세":
+    elif sentiment in bullish_set:
         match = weekly_return > 0
         score = 100 if match else 0
         verdict = "방향 일치" if match else "방향 불일치"
-    elif sentiment == "약세":
+    elif sentiment in bearish_set:
         match = weekly_return < 0
         score = 100 if match else 0
         verdict = "방향 일치" if match else "방향 불일치"
-    else:  # 중립
+    else:  # 중립 / 콜·풋 균형
         match = abs(weekly_return) < 2
         score = 100 if match else 40
         verdict = "방향 일치" if match else "방향 불일치"
     return {
         "predicted_sentiment": sentiment,
         "weekly_return_pct": weekly_return,
-        "match": match if sentiment in ("강세", "약세", "중립") else True,
+        "match": match if sentiment in (*bullish_set, *bearish_set, "중립", "콜·풋 균형") else True,
         "score": score,
         "label": f"{verdict} ({sentiment} 예상, 주간 {weekly_return:+.1f}%)",
     }

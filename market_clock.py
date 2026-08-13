@@ -160,6 +160,19 @@ def format_price_line(data: dict) -> str:
         else:
             lines.append(f"- {today_label}프리마켓: {_fmt(pre)}")
 
+    ext = data.get("extended_price")
+    after = data.get("after_market_price")
+    ext_show = after if after is not None else ext
+    if ext_show is not None and ms in ("afterhours", "premarket", "closed"):
+        ep = _pct(ext_show, reg_price)
+        label = "애프터마켓" if ms == "afterhours" else "시간외"
+        if ms == "premarket" and pre is not None:
+            pass  # 프리마켓은 위에서 표시
+        elif ep:
+            lines.append(f"- {label}: {_fmt(ext_show)} ({ep} vs 종가)")
+        else:
+            lines.append(f"- {label}: {_fmt(ext_show)}")
+
     return "\n".join(lines)
 
 

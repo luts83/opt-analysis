@@ -31,19 +31,33 @@ def _next_month(year: int, month: int) -> tuple[int, int]:
     return (year + 1, 1) if month == 12 else (year, month + 1)
 
 
-def select_from_expiries(expiries: list[str]) -> dict:
+def select_from_expiries(
+    expiries: list[str], as_of: dt.date | None = None
+) -> dict:
     """만기일 문자열 리스트(오름차순)에서 3개 만기를 선택한다.
 
-    네트워크 없이 순수 로직만 담당 → 단위 테스트 대상.
+    as_of(기본: 오늘) 이전 만기는 건너뛴다.
+    as_of 당일 만기는 zero_dte 로 분리하고 this_week 는 그 다음 만기.
     """
     if len(expiries) < 2:
         raise ValueError("만기일이 2개 미만이라 선택할 수 없습니다.")
 
+    today = as_of or dt.date.today()
+    today_s = today.isoformat()
     exp_sorted = sorted(expiries)
-    exp_set = set(exp_sorted)
+    future = [e for e in exp_sorted if e > today_s]
+    zero_dte = exp_sorted[0] if exp_sorted and exp_sorted[0] == today_s else None
+    if zero_dte:
+        pool = future
+    else:
+        pool = future if future else exp_sorted
 
-    this_week = exp_sorted[0]
-    next_week = exp_sorted[1]
+    if len(pool) < 2:
+        raise ValueError("만기일이 2개 미만이라 선택할 수 없습니다.")
+
+    exp_set = set(exp_sorted)
+    this_week = pool[0]
+    next_week = pool[1]
 
     # 월간 후보 탐색: this_week 의 월부터 시작해 3번째 금요일을 차례로 검사
     start = dt.datetime.strptime(this_week, "%Y-%m-%d").date()
@@ -62,7 +76,10 @@ def select_from_expiries(expiries: list[str]) -> dict:
     if monthly is None:
         raise ValueError("조건에 맞는 월간 만기를 찾지 못했습니다.")
 
-    return {"this_week": this_week, "next_week": next_week, "monthly": monthly}
+    out = {"this_week": this_week, "next_week": next_week, "monthly": monthly}
+    if zero_dte:
+        out["zero_dte"] = zero_dte
+    return out
 
 
 def select_expiries(ticker: str) -> dict:
@@ -76,4 +93,4 @@ def select_expiries(ticker: str) -> dict:
     options = yf.Ticker(ticker).options
     if not options:
         raise ValueError(f"{ticker}: 옵션 만기 목록이 비어 있습니다.")
-    return select_from_expiries(list(options))
+    return select_from_expiries(list(options), as_of=dt.date.today())
