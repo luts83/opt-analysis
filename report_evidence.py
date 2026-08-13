@@ -75,10 +75,11 @@ def plain_talk_block(data: dict, base: dict, eventinfo: dict | None = None) -> s
         if exp and exp.get("zone"):
             z0, z1 = exp["zone"]
             mag = exp.get("magnet")
-            extra = f" → {_fmt_px(mag)}까지 열어볼 수 있어요" if mag else ""
+            extra = f" 먼 관심은 {_fmt_px(mag)} (목표가 아님)" if mag else ""
             L.append(
                 f"{_fmt_px(key)}를 거래량과 함께 돌파·유지하면 "
-                f"${z0}~${z1}로 길이 넓어지고{extra}. "
+                f"${z0}~${z1}로 길이 넓어질 수 있어요{extra}. "
+                f"이건 오늘 옵션 지도일 뿐, 한 번 맞았다고 다음에도 그 가격까지 간다고 배우지 않습니다. "
                 f"{_fmt_px(sup)} 아래로 빠지면 상승 이야기는 힘이 빠집니다."
             )
         else:
@@ -771,6 +772,8 @@ def format_scenarios(nxt: dict | None) -> str:
             L.append(f"  → {s['watch']}")
         if s.get("evidence"):
             L.append(f"  근거: {s['evidence']}")
+        if s.get("confidence_note"):
+            L.append(f"  신뢰도: {s['confidence_note']}")
     return "\n".join(L)
 
 
@@ -908,20 +911,9 @@ def learning_section(ticker: str, today_feedback: dict | None = None, ctx: dict 
                 L.append(f"  * {short}")
 
     tips = (ctx or {}).get("개선지시") or []
-    lesson = (today_feedback or {}).get("lesson")
-    if lesson or tips:
-        L.append("- 이번 예측에 반영한 개선점:")
-        if lesson:
-            # 초보자 버전 한 줄
-            bl = beginner_lesson(lesson, (today_feedback or {}).get("missed_signals"))
-            # beginner_lesson 전체 대신 첫 실질 줄
-            for line in bl.split("\n")[1:]:
-                if line.strip():
-                    L.append(f"  * {line.strip()}")
-                    break
+    if tips:
+        L.append("- 통계가 붙은 참고 (예측 뒤집기 아님):")
         for t in tips[:2]:
-            if lesson and lesson[:20] in t:
-                continue
             L.append(f"  * {t[:90]}")
     return "\n".join(L)
 
@@ -931,7 +923,7 @@ def learning_section(ticker: str, today_feedback: dict | None = None, ctx: dict 
 # ------------------------------------------------------------------ #
 
 _SECTION_NEXT = (
-    r"(?=^[\U0001F300-\U0001FAFF⭐📊🎯💰🚨🌡️🟢🔴📈🔮⚠️📰📚💡🚦📍🔍]|^⚠️ 이 리포트|\Z)"
+    r"(?=^[\U0001F300-\U0001FAFF⭐📊🎯💰🚨🌡️🟢🔴📈🔮⚠️📰📚💡🚦📍🔍🧪]|^⚠️ 이 리포트|\Z)"
 )
 
 
@@ -963,6 +955,7 @@ def enforce_all(
     price_map: str | None = None,
     why: str | None = None,
     banner: str | None = None,
+    candidates: str | None = None,
 ) -> str:
     t = narrative or ""
     # 🎯 한줄요약 중복 제거: 첫 줄만 남김
@@ -1042,6 +1035,17 @@ def enforce_all(
         t = replace_section(t, r"📚", learning)
         if "📚" not in t:
             t = t.rstrip() + "\n\n" + learning.strip() + "\n"
+    if candidates:
+        t = replace_section(t, r"🧪", candidates)
+        if "🧪 학습 후보" not in t:
+            if "⚠️ 이 리포트는 투자 조언" in t:
+                t = t.replace(
+                    "⚠️ 이 리포트는 투자 조언",
+                    candidates.strip() + "\n\n⚠️ 이 리포트는 투자 조언",
+                    1,
+                )
+            else:
+                t = t.rstrip() + "\n\n" + candidates.strip() + "\n"
     if checkpoints:
         t = replace_section(t, r"🎯 오늘 체크포인트", checkpoints)
         if "🎯 오늘 체크포인트" not in t and checkpoints:

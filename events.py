@@ -639,6 +639,43 @@ def next_session_scenarios(
         except Exception:
             exp_up = {}
 
+    import pattern_store as ps
+
+    def _fmt_px(v) -> str:
+        try:
+            return f"${float(v):g}"
+        except (TypeError, ValueError):
+            return str(v)
+
+    patt = ps.pattern_state(ps.PATTERN_BREAKOUT_EXPAND)
+    rise_bias = 3 if bullish else (2 if not bearish else 1)
+    # 학습 후보는 순위를 뒤집지 않음. 활성일 때만 상승 시나리오에 소폭 가산.
+    if patt.get("status") == "active":
+        rise_bias += min(float(patt.get("rank_delta") or 0), ps.MAX_RANK_DELTA)
+
+    rise_watch = (
+        "돌파 유지 시 위쪽 관심."
+        + (f" 다음 관심 ${secondary_resist:g}." if secondary_resist else "")
+    )
+    rise_conf = None
+    if exp_up and exp_up.get("zone"):
+        z0, z1 = exp_up["zone"]
+        mag = exp_up.get("magnet")
+        mag_bit = f", 먼 관심 {_fmt_px(mag)}" if mag else ""
+        if patt.get("status") == "active":
+            rise_watch += (
+                f" 돌파+거래 증가 유지 시 ${z0}~${z1} 확장 가능성 가산"
+                f"(표본 {patt['n']}, 적중률 {int((patt.get('hit_rate') or 0)*100)}%)."
+                f"{mag_bit} 목표 숫자는 배우지 않음."
+            )
+            rise_conf = "확률 소폭 가산"
+        else:
+            rise_watch += (
+                f" 같은 조건이면 ${z0}~${z1} 확장은 학습 후보"
+                f"(표본 {patt.get('n')}/{patt.get('min_samples')}, 가중치 미반영)."
+            )
+            rise_conf = "학습 후보"
+
     candidates: list[dict] = [
         {
             "name": "하락 지속",
@@ -656,42 +693,21 @@ def next_session_scenarios(
             "evidence": "가까운 관심 가격 사이 소화 구간",
             "rank_bias": 3 if senti in ("중립", "콜·풋 균형") and not bearish else 2,
         },
+        {
+            "name": "상승",
+            "condition": f"{when} ${primary_resist:g} 돌파{reclaim_bit}",
+            "watch": rise_watch,
+            "evidence": f"${primary_resist:g} ({why_pr})",
+            "rank_bias": rise_bias,
+            "confidence_note": rise_conf,
+        },
     ]
-    if exp_up and exp_up.get("zone"):
-        z0, z1 = exp_up["zone"]
-        mag = exp_up.get("magnet")
-        br = exp_up.get("break_level") or primary_resist
-        mag_bit = f" → 강세 지속 시 ${mag:g} 테스트" if mag else ""
-        candidates.append(
-            {
-                "name": "상단 확장",
-                "condition": (
-                    f"{when} ${br:g} 돌파 + 거래량 증가 + 돌파 유지"
-                ),
-                "watch": f"${z0}~${z1} 상단 확장{mag_bit}.",
-                "evidence": exp_up.get("note") or "연속된 위쪽 콜 관심 가격",
-                "rank_bias": 5 if bullish else (4 if not bearish else 3),
-            }
-        )
-    else:
-        candidates.append(
-            {
-                "name": "상승",
-                "condition": f"{when} ${primary_resist:g} 돌파{reclaim_bit}",
-                "watch": (
-                    "돌파 유지 시 위쪽 관심."
-                    + (f" 다음 관심 ${secondary_resist:g}." if secondary_resist else "")
-                ),
-                "evidence": f"${primary_resist:g} ({why_pr})",
-                "rank_bias": 3 if bullish else (2 if not bearish else 1),
-            }
-        )
 
     if gap_pct is not None and abs(gap_pct) >= 1.5:
         for c in candidates:
             if gap_pct < 0 and c["name"] == "하락 지속":
                 c["rank_bias"] += 2
-            elif gap_pct > 0 and c["name"] == "반등 시도":
+            elif gap_pct > 0 and c["name"] == "상승":
                 c["rank_bias"] += 2
     if change_pct is not None and change_pct <= -5:
         for c in candidates:
@@ -708,6 +724,7 @@ def next_session_scenarios(
                 "condition": c["condition"],
                 "watch": c["watch"],
                 "evidence": c.get("evidence"),
+                "confidence_note": c.get("confidence_note"),
             }
         )
 

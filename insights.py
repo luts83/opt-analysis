@@ -93,6 +93,9 @@ def build_friendly_fallback(
 
     L.append(ev.learning_section(data.get("ticker", ""), fb, ctx))
     L.append("")
+    import pattern_store
+    L.append(pattern_store.format_candidates_block())
+    L.append("")
     L.append("⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다.")
     return "\n".join(L)
 
@@ -146,6 +149,7 @@ def build_narrative(
         price_map=ev.price_map_block(data, base),
         why=ev.why_block(data, base, eventinfo),
         banner=ev.low_confidence_banner(base),
+        candidates=__import__("pattern_store").format_candidates_block(),
     )
     text = events.with_linked_news(text, eventinfo)
 

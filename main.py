@@ -91,6 +91,9 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         feedback = learning.grade_yesterday(ticker, prev_any, today_ohlc)
         if feedback and feedback.get("available") and save:
             learning.save_prediction_record(feedback)
+            import pattern_store
+
+            pattern_store.observe_from_grade(ticker, prev_any, feedback)
         learn_ctx = learning.learning_context_for_llm(ticker, feedback)
         data["prediction_feedback"] = feedback
         data["learning_context"] = learn_ctx

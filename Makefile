@@ -38,3 +38,4 @@ weekly-preview:
 test:
 	$(PYTHON) test_expiry_selector.py
 	$(PYTHON) test_price_levels.py
+	$(PYTHON) test_pattern_store.py

@@ -117,7 +117,8 @@ def test_news_relevance_filter():
     assert news_is_relevant({"title": "Iris Energy announces new bitcoin miners"}, "IREN")
 
 
-def test_scenario_prefers_expansion():
+def test_scenario_notes_expansion_as_candidate_not_top_rule():
+    """확장 구간은 오늘 지도로 보여 주되, 단일 사례로 1순위 규칙이 되면 안 됨."""
     import events
 
     spot = 43.67
@@ -125,10 +126,13 @@ def test_scenario_prefers_expansion():
     base["levels"] = pl.build_levels(base, spot)
     nxt = events.next_session_scenarios(base, spot, data={"spot": spot, "market_session": "closed"})
     names = " ".join(s["name"] for s in nxt["scenarios"])
-    assert "상단 확장" in names
-    top = nxt["scenarios"][0]
-    assert "44" in top["condition"]
-    assert "45" in (top.get("watch") or "")
+    assert "상승" in names
+    assert "상단 확장" not in names or "학습 후보" in str(nxt)
+    rise = next(s for s in nxt["scenarios"] if "상승" in s["name"])
+    assert "학습 후보" in (rise.get("watch") or "") or rise.get("confidence_note") == "학습 후보"
+    assert "45" in (rise.get("watch") or "")
+    # 1순위가 확장 확정이면 안 됨
+    assert "상단 확장" not in nxt["scenarios"][0]["name"]
 
 
 def test_plain_talk_has_analogy_and_levels():

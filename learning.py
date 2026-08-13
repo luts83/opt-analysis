@@ -218,14 +218,15 @@ def build_lesson(missed: list[str], results: dict) -> str | None:
     elif any("V/OI" in m for m in missed):
         tips.append("거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급")
     if band and not band.get("contained"):
-        tips.append(
-            "밴드를 천장/바닥으로 쓰지 말 것. "
-            "상단 돌파 + 거래량 폭증 시 상단 확장 가능성을 더 높게 평가"
-        )
         ah = (results.get("resistance") or {}).get("actual_high")
         pu = (band.get("predicted") or [None, None])[1]
         if ah is not None and pu is not None and float(ah) > float(pu):
-            tips.append("예측 실패 원인: 다음 저항만 제시하고 확장 구간을 빠뜨림")
+            tips.append(
+                "학습 후보: 관심가 돌파+거래 급증 시 밴드 상단 확장 가능성 "
+                "(단일 사례로 예측 규칙을 바꾸지 않음)"
+            )
+        else:
+            tips.append("밴드는 천장/바닥이 아님 — 이탈은 관찰로만 기록")
     if support and support.get("actual_low") is not None and support.get("predicted"):
         if support["actual_low"] <= support["predicted"]:
             tips.append("지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시")
@@ -570,16 +571,16 @@ def learning_context_for_llm(ticker: str, today_feedback: dict | None = None) ->
             "lesson": today_feedback.get("lesson"),
             "grade": (today_feedback.get("accuracy") or {}).get("grade"),
         }
-    # 개선 지시 한 줄
+    # 개선 지시: 최근 며칠만으로 예측을 뒤집지 않음. 30일+최소표본.
+    import pattern_store as ps
+
     tips: list[str] = []
-    s7 = last7 if last7.get("available") else stats
-    if s7.get("support_accuracy_pct") is not None and s7["support_accuracy_pct"] < 50:
-        tips.append("지지선 예측 정확도가 낮음 — 강한 지지(OI)와 단기 지지를 함께 강조")
-    if s7.get("band_accuracy_pct") is not None and s7["band_accuracy_pct"] < 50:
-        tips.append("밴드 이탈이 잦음 — OI/V·OI 급변을 리스크 신호로 먼저 언급")
-    for m in (s7.get("top_missed_signals") or [])[:2]:
-        tips.append(f"자주 놓침: {m['signal']}")
-    if today_feedback and today_feedback.get("lesson"):
-        tips.append(today_feedback["lesson"])
+    n30 = int(stats.get("n") or 0)
+    if n30 >= ps.MIN_SAMPLES:
+        if stats.get("support_accuracy_pct") is not None and stats["support_accuracy_pct"] < 50:
+            tips.append("지지 정확도 낮음(30일) — 표현만 신중, 규칙 교체 아님")
+        if stats.get("band_accuracy_pct") is not None and stats["band_accuracy_pct"] < 50:
+            tips.append("밴드 이탈이 잦음(30일) — 확장 가능성을 후보로만 언급")
     ctx["개선지시"] = tips
+    ctx["학습패턴"] = ps.pattern_state(ps.PATTERN_BREAKOUT_EXPAND)
     return ctx
