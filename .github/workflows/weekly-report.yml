@@ -1,13 +1,17 @@
 name: Weekly Validation Report
 
-# 토 아침 ≈ 06:07 / 06:37 BST (UTC 05:07 / 05:37)
+# 토 아침 ≈ 06:07 BST (UTC 05:07) — 한 번만.
+# (예전 05:07+05:37 이중 cron → 주간검증이 두 번·내용도 달라짐)
 "on":
   schedule:
     - cron: "7 5 * * 6"
-    - cron: "37 5 * * 6"
   workflow_dispatch:
   repository_dispatch:
     types: [weekly-report]
+
+concurrency:
+  group: weekly-validation-report
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -19,26 +23,54 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Skip if already completed this week (London week-ending Friday)
+        id: gate
+        run: |
+          # 이번 주 금요일(주간검증 week_ending) 기준 마커
+          TODAY=$(TZ=Europe/London date +%Y-%m-%d)
+          # 토요일이면 금요일이 어제, 그 외엔 이번 주 금요일을 계산
+          DOW=$(TZ=Europe/London date +%u)  # 1=월 … 7=일
+          # 금요일=5 → week_ending = TODAY - (DOW-5)  (토=6 → -1일)
+          OFFSET=$((DOW - 5))
+          WEEK_ENDING=$(TZ=Europe/London date -d "$TODAY -$OFFSET days" +%Y-%m-%d 2>/dev/null \
+            || python3 -c "import datetime as d; t=d.date.fromisoformat('$TODAY'); print((t-d.timedelta(days=$OFFSET)).isoformat())")
+          MARKER="snapshots/.weekly_sent_${WEEK_ENDING}"
+          echo "event=${{ github.event_name }}"
+          echo "week_ending=$WEEK_ENDING"
+          echo "week_ending=$WEEK_ENDING" >> "$GITHUB_OUTPUT"
+          if [ -f "$MARKER" ] && [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "이미 이번 주 자동 주간검증 완료 → schedule 스킵"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Python
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
       - name: Install dependencies
+        if: steps.gate.outputs.skip != 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Run weekly validation
+        if: steps.gate.outputs.skip != 'true'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
           EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python weekly.py | tee weekly_output.txt
 
       - name: Upload weekly report as artifact
+        if: steps.gate.outputs.skip != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: weekly-report
@@ -46,8 +78,13 @@ jobs:
             weekly_output.txt
             snapshots/**/weekly/*.json
 
-      - name: Commit weekly snapshot
+      - name: Commit weekly snapshot + marker
+        if: steps.gate.outputs.skip != 'true'
         run: |
+          WEEK_ENDING="${{ steps.gate.outputs.week_ending }}"
+          mkdir -p snapshots
+          touch "snapshots/.weekly_sent_${WEEK_ENDING}"
+          find snapshots -name '.weekly_sent_*' -mtime +40 -delete 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add snapshots/

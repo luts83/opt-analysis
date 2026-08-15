@@ -25,7 +25,7 @@ make report-preview                   # 스모크
 
 ## 현재 상태 (2026-08-13)
 
-- 일일 리포트 해석 개편 + 과적합 가드: 단일 사례는 학습 후보만, 최소 8표본·적중률·최근가중 상한 후에만 확률 소폭 가산. IREN $50을 목표가로 배우지 않음.
+- 주간검증 이중 발송 원인: Actions에 토요 05:07·05:37 이중 cron + 스킵 마커 없음. 단일 cron+마커로 수정함. Railway weekly 서비스와 Actions 동시 운영 금지.
 - 테스트: `python test_expiry_selector.py` + `python test_price_levels.py` (IREN 8/12→8/13 $49.19 케이스).
 - Railway 재배포는 커밋·푸시 후.
 
