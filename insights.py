@@ -1,176 +1,71 @@
-"""리포트 본문(자연어) 생성 오케스트레이션.
+"""리포트 본문 오케스트레이션 — 실험·학습형 일일 리포트.
 
-- 1순위: ChatGPT(OpenAI) 로 일반인용 친근한 리포트 생성.
-- 폴백: API 키 없음/실패 시 규칙 기반 리포트.
-- 핵심 섹션은 시스템이 근거 문장으로 강제 교체.
-- 맨 위: 💡 쉽게 말하면 + 💰 가격.
+순서: 오늘 결과 → 옵션 변화 → 주가 반응 → 관심 가격 → 교훈 → 누적 → 다음 관찰 → 한계
 """
 from __future__ import annotations
 
 import events
-import report_evidence as ev
-
-
-def _one_liner(data, base, eventinfo) -> str:
-    return ev.one_liner(data, base, eventinfo)
+import report_flow
 
 
 def build_friendly_fallback(
     data, base, anomalies, volume_anomaly, prev, eventinfo=None, day_over_day=None,
     feedback=None, learning_context=None,
 ) -> str:
-    """LLM 없이도 읽히는 근거 포함 리포트(규칙 기반)."""
-    import learning
-    import market_clock
-
-    earn = (eventinfo or {}).get("earnings") or {}
-    in_earnings = earn.get("phase") in ("임박", "직후")
-    nxt = (eventinfo or {}).get("next_session") or {}
-    fb = feedback or data.get("prediction_feedback")
-    ctx = learning_context or data.get("learning_context")
-
-    L: list[str] = []
-    L.append(f"📊 오늘의 {data['ticker']} 옵션 시장 이야기 - {data['date']}")
-    L.append("")
-    banner = ev.low_confidence_banner(base)
-    if banner:
-        L.append(banner)
-        L.append("")
-    L.append(ev.plain_talk_block(data, base, eventinfo))
-    L.append("")
-    L.append(market_clock.format_price_line(data))
-    L.append("")
-
-    if in_earnings and earn.get("message"):
-        L.append("🚨 이벤트 경고")
-        L.append(earn["message"])
-        L.append("")
-    price = (eventinfo or {}).get("price") or {}
-    if price.get("abnormal") and price.get("note"):
-        L.append("🚨 이벤트 경고")
-        L.append(price["note"])
-        L.append("")
-
-    L.append(ev.signals_block(data, base, eventinfo))
-    L.append("")
-    L.append(ev.price_map_block(data, base))
-    L.append("")
-
-    scen = ev.format_scenarios(nxt)
-    if scen:
-        L.append(scen)
-        L.append("")
-
-    L.append(ev.why_block(data, base, eventinfo))
-    L.append("")
-
-    if base.get("oi_source") and "전일" in str(base.get("oi_source")):
-        L.append("※ OI는 전일 기준(오늘 미갱신). 관심 가격 참고용.")
-        L.append("")
-
-    band = ev.band_block(base)
-    if band:
-        L.append(band)
-        L.append("")
-
-    unusual: list[str] = []
-    if day_over_day and day_over_day.get("highlights"):
-        unusual.extend(day_over_day["highlights"])
-    if volume_anomaly and volume_anomaly.get("is_anomaly"):
-        unusual.append(f"거래량 이상: 평소 대비 {volume_anomaly['mult']}배")
-    for a in (anomalies or [])[:4]:
-        unusual.append(a["message"])
-    if unusual:
-        L.append("⚠️ 오늘 특이한 일")
-        for u in unusual:
-            L.append(f"- {u}")
-        L.append("")
-
-    fb_text = learning.format_feedback_section(fb)
-    if fb_text:
-        L.append(fb_text.rstrip())
-        L.append("")
-
-    L.append(ev.learning_section(data.get("ticker", ""), fb, ctx))
-    L.append("")
-    import pattern_store
-    L.append(pattern_store.format_candidates_block())
-    L.append("")
-    L.append("⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다.")
-    return "\n".join(L)
+    return report_flow.assemble_experiment_report(
+        data,
+        base,
+        anomalies=anomalies,
+        volume_anomaly=volume_anomaly,
+        day_over_day=day_over_day,
+        eventinfo=eventinfo,
+        feedback=feedback,
+        learning_context=learning_context,
+    )
 
 
 def build_narrative(
     data, base, anomalies, volume_anomaly, prev, trend, eventinfo=None, day_over_day=None,
     feedback=None, learning_context=None,
 ) -> tuple[str, str]:
-    """(본문, 출처). 출처: 'openai' | 'rule'."""
+    """(본문, 출처). 출처: 'openai' | 'rule'.
+
+    본문 골격은 항상 시스템 실험형 조립. LLM은 초보자용 2~3줄만 덧붙인다.
+    """
     import llm
-    import market_clock
-    import learning
-    import re
     import report_polish
 
     fb = feedback if feedback is not None else data.get("prediction_feedback")
     ctx = learning_context if learning_context is not None else data.get("learning_context")
-    nxt = (eventinfo or {}).get("next_session") or {}
-    earn = (eventinfo or {}).get("earnings") or {}
-    in_earnings = earn.get("phase") in ("임박", "직후")
-    spot = data.get("spot")
 
-    text = llm.generate_report(
-        data, base, anomalies, volume_anomaly, prev, trend, eventinfo, day_over_day,
-        feedback=fb, learning_context=ctx,
+    body = report_flow.assemble_experiment_report(
+        data,
+        base,
+        anomalies=anomalies,
+        volume_anomaly=volume_anomaly,
+        day_over_day=day_over_day,
+        eventinfo=eventinfo,
+        feedback=fb,
+        learning_context=ctx,
     )
-    if text:
+    src = "rule"
+
+    blurb = llm.generate_experiment_blurb(
+        data, base, day_over_day, fb, ctx, eventinfo
+    )
+    if blurb:
         src = "openai"
-    else:
-        text = build_friendly_fallback(
-            data, base, anomalies, volume_anomaly, prev, eventinfo, day_over_day,
-            feedback=fb, learning_context=ctx,
-        )
-        src = "rule"
-
-    text = report_polish.polish_narrative(text)
-    text = market_clock.apply_session_to_narrative(text, data, eventinfo)
-
-    text = ev.enforce_all(
-        text,
-        title=ev.one_liner(data, base, eventinfo),
-        key_summary=None,
-        temp=ev.sentiment_block(base, in_earnings=in_earnings),
-        levels=ev.levels_block(base.get("levels"), spot),
-        band=ev.band_block(base),
-        scenarios=ev.format_scenarios(nxt),
-        checkpoints=None,
-        learning=ev.learning_section(data.get("ticker", ""), fb, ctx),
-        plain_talk=ev.plain_talk_block(data, base, eventinfo),
-        signals=ev.signals_block(data, base, eventinfo),
-        price_map=ev.price_map_block(data, base),
-        why=ev.why_block(data, base, eventinfo),
-        banner=ev.low_confidence_banner(base),
-        candidates=__import__("pattern_store").format_candidates_block(),
-    )
-    text = events.with_linked_news(text, eventinfo)
-
-    # 채점 블록: 맨 위가 아니라 핵심 요약·가격 뒤(📚 앞)에 둠
-    fb_block = learning.format_feedback_section(fb)
-    if fb_block:
-        text = re.sub(
-            r"(?m)^(?:📊\s*(?:직전 리포트 채점|어제 예측 vs 오늘 실제)|📚 어제 예측).*?(?=^📊 오늘의|^⭐ |^💰 |^🚨 |^🌡️ |^🟢 |^📈 |^🔮 |^📚 |^⚠️ |^🎯 오늘|^💡 |^🚦 |^📍 |^🔍 |\Z)",
-            "",
-            text,
-            count=1,
-            flags=re.S,
-        )
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        if "📚 과거 데이터 학습" in text:
-            text = text.replace(
-                "📚 과거 데이터 학습",
-                fb_block.strip() + "\n\n📚 과거 데이터 학습",
+        # 제목 다음, 가격(①) 앞에 삽입
+        marker = "① 오늘 결과"
+        if marker in body:
+            body = body.replace(
+                marker,
+                f"💡 쉽게 말하면\n{blurb.strip()}\n\n{marker}",
                 1,
             )
         else:
-            text = text.rstrip() + "\n\n" + fb_block.strip() + "\n"
+            body = f"💡 쉽게 말하면\n{blurb.strip()}\n\n{body}"
 
-    return text, src
+    body = report_polish.polish_narrative(body)
+    body = events.with_linked_news(body, eventinfo)
+    return body, src

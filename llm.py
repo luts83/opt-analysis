@@ -1,8 +1,7 @@
-"""ChatGPT(OpenAI) 로 '일반 투자자용' 친근한 리포트 본문을 생성.
+"""ChatGPT(OpenAI) 헬퍼.
 
-- 독자는 옵션을 모르는 일반 투자자. 용어는 풀어쓰고 비유를 쓴다.
-- 숫자 나열이 아니라 '왜/그래서 뭘' 을 설명. 어제·최근 추이와 연결해 해석.
-- API 키 없음/실패 시 None → 호출부(insights)가 규칙 기반 폴백.
+- 일일: 실험형 리포트용 초보자 2~3줄(blurb)만 생성.
+- 주간: 검증 성적표 해설.
 """
 from __future__ import annotations
 
@@ -10,181 +9,24 @@ import json
 
 import config
 
-_SYSTEM_PROMPT = """너는 주식 옵션 데이터를 '옵션을 전혀 모르는 일반 투자자'에게 설명하는 애널리스트다.
+_SYSTEM_PROMPT = """너는 옵션 관측 일지를 초보 투자자에게 쉽게 풀어 쓰는 기록 도우미다.
 
-작성 원칙 (반드시):
-- 결론 → 가격 → 근거 → 상세 데이터 순서.
-- 맨 위 '💡 쉽게 말하면' 2~3줄. 비유는 1~2문장만. 옵션 용어 강의 금지.
-- 그 다음 주가표시문을 그대로.
-- OI 많음 = 저항/지지라고 쓰지 마라. '관심 가격 / 저항 후보 / 지지 후보'.
-- '팔겠다' '사겠다' 금지. '해당 가격에 옵션 포지션이 많이 쌓여 있음'.
-- 거래량 많음 = 바로 저항/지지 금지. 먼저 '옵션 관심 가격'.
-- 옵션 밴드 상단=저항, 하단=지지로 쓰지 마라. 밴드는 '예상 변동 범위'.
-- 멀리 있는 큰 OI($50 등)를 현재가보다 중요하다고 1순위로 쓰지 마라.
-- 위쪽 콜 관심이 연속이면 오늘 지도의 확장 구간을 언급하되, 단일 사례로 '다음엔 $N까지 간다'고 쓰지 마라.
-- 학습 후보(표본 부족)는 예측을 뒤집지 마라. 활성 패턴만 상승 시나리오 신뢰도를 소폭 가산.
-- C/P는 방향이 아니라 거래 구성비. 급락+콜우세면 방향 불확실.
-- 콜 극단+풋 극단이면 강세/약세를 고르지 말고 변동성 확대.
-- 저신뢰(OI 없음)면 강한 지지/저항 금지.
-- 📰 뉴스 쓰지 마라. 섹션 번호/'제목:' 금지.
+목표: 매일 그럴듯한 '예측'이 아니라, 실험 결과를 쌓아 실제로 통하는 신호를 찾는다.
+흐름: 어제 옵션 → 오늘 옵션 변화 → 오늘 주가 반응 → 패턴 기록 → 과거 비교.
 
-출력 구조:
-📊 오늘의 {티커} 옵션 시장 이야기 - {날짜}
-💡 쉽게 말하면 (입력 초보자요약 우선)
-💰 가격 (주가표시문 그대로)
-🚦 오늘의 신호
-📍 가격 지도
-📈 오늘의 시나리오 (상단 확장 시나리오 포함)
-🔍 왜 이렇게 보나?
-📚 어제 예측 vs 오늘 결과 (있으면)
-🧪 학습 후보 (있으면, 가중치 미반영 명시)
-⚠️ 이 리포트는 투자 조언이 아니라 시장 정보 요약입니다.
+금지:
+- OI/거래량 = 지지·저항·매수·매도 단정
+- '팔겠다/사겠다', '$50까지 간다' 식 목표가 확정
+- 단일 사례로 새 예측 규칙 선언
+- 뉴스, 마크다운 링크, 섹션 번호 지시문
 
-금지: 뉴스, 마크다운 링크, 근거 없는 숫자, OI=매도세 단정."""
+할 일: 입력 숫자만 보고 2~3문장 '쉽게 말하면'만 작성. 비유는 최대 1개."""
 
 
-
-
-def _oi_freshness_text(base: dict) -> str:
-    src = base.get("oi_source")
-    if src == "실시간":
-        return "실시간(오늘 장 기준)"
-    if src and "전일" in src:
-        return "전일 종가 기준 (오늘 아직 미갱신 — 큰 흐름 참고용)"
-    return "데이터 없음"
-
-
-def _expiry_block(em: dict) -> dict:
-    st = em.get("straddle")
-    return {
-        "만기": em["date"],
-        "예상밴드": [st["lower"], st["upper"]] if st else None,
-        "변동폭_퍼센트": st["band_pct"] if st else None,
-        "저항선_콜OI밀집": em.get("call_oi_clusters", [])[:2],
-        "지지선_풋OI밀집": em.get("put_oi_clusters", [])[:2],
-    }
-
-
-def _prev_summary(prev: dict | None) -> dict | None:
-    if not prev:
-        return None
-    m = prev.get("metrics", {})
-    return {
-        "날짜": prev.get("date"),
-        "주가": prev.get("spot"),
-        "심리": m.get("sentiment"),
-        "콜풋볼륨비": m.get("call_put_volume_ratio"),
-    }
-
-
-def _events_block(eventinfo: dict | None) -> dict | None:
-    if not eventinfo:
-        return None
-    earn = eventinfo.get("earnings")
-    react = eventinfo.get("options_reaction")
-    nxt = eventinfo.get("next_session")
-    return {
-        "실적발표": (
-            {
-                "국면": earn.get("phase"),
-                "발표일": earn.get("date"),
-                "경고문": earn.get("message"),
-                "EPS예상": earn.get("eps_estimate"),
-                "EPS실제": earn.get("eps_reported"),
-                "서프라이즈_퍼센트": earn.get("surprise_pct"),
-            }
-            if earn
-            else None
-        ),
-        "옵션반응": react,
-        "다음장시나리오": nxt,
-        "가격주의": (eventinfo.get("price") or {}).get("note"),
-        "뉴스헤드라인": [
-            {
-                "제목": n.get("title"),
-                "매체": n.get("publisher"),
-                "URL": n.get("link"),
-            }
-            for n in (eventinfo.get("news") or [])[:3]
-        ],
-    }
-
-
-def _build_payload(data, base, anomalies, volume_anomaly, prev, trend,
-                   eventinfo=None, day_over_day=None,
-                   feedback=None, learning_context=None) -> dict:
-    import market_clock
-    import learning
-
-    spot = data["spot"]
-    prev_close = data.get("previous_close")
-    change_pct = (
-        round((spot - prev_close) / prev_close * 100, 2) if prev_close else None
-    )
-    cpr = base.get("call_put_volume_ratio")
-    up_pct = round(cpr / (1 + cpr) * 100) if cpr else None
-    ms = data.get("market_session") or market_clock.get_market_session()
-    nxt = (eventinfo or {}).get("next_session") or {}
-    fb = feedback if feedback is not None else data.get("prediction_feedback")
-    ctx = learning_context if learning_context is not None else data.get("learning_context")
-    return {
-        "티커": data["ticker"],
-        "날짜": data["date"],
-        "시장세션": ms,
-        "시장세션한글": market_clock.session_label_ko(ms),
-        "주가표시문": market_clock.format_price_line(data),
-        "시나리오섹션제목": nxt.get("section_title")
-        or market_clock.scenario_section_title(ms),
-        "시나리오시점표현": nxt.get("when_phrase")
-        or market_clock.scenario_when_phrase(ms),
-        "어제예측검증_본문": learning.format_feedback_section(fb) or None,
-        "어제예측검증": fb,
-        "학습컨텍스트": ctx,
-        "현재가_분석기준": spot,
-        "정규장종가": data.get("regular_close"),
-        "확장장가_프리또는애프터": data.get("extended_price"),
-        "확장장_정규장대비_퍼센트": data.get("extended_vs_regular_pct"),
-        "가격소스세션": data.get("session"),
-        "전일종가": prev_close,
-        "전일대비_퍼센트": change_pct,
-        "이벤트": _events_block(eventinfo),
-        "OI_데이터_신선도": _oi_freshness_text(base),
-        "시장심리": base.get("sentiment"),
-        "시장심리태그": base.get("sentiment_tags") or [],
-        "시장심리_C/P단독": base.get("sentiment_raw"),
-        "한줄요약_시스템초안": __import__("report_evidence").one_liner(data, base, eventinfo),
-        "초보자요약": __import__("report_evidence").plain_talk_block(data, base, eventinfo),
-        "신호표시문": __import__("report_evidence").signals_block(data, base, eventinfo),
-        "가격지도": __import__("report_evidence").price_map_block(data, base),
-        "왜이렇게보나": __import__("report_evidence").why_block(data, base, eventinfo),
-        "지지저항표시문": __import__("report_evidence").levels_block(base.get("levels"), spot),
-        "시장온도표시문": __import__("report_evidence").sentiment_block(base),
-        "과거학습표시문": __import__("report_evidence").learning_section(
-            data.get("ticker", ""), fb, ctx
-        ),
-        "학습후보표시문": __import__("pattern_store").format_candidates_block(),
-        "학습패턴상태": (ctx or {}).get("학습패턴"),
-        "콜풋볼륨비": cpr,
-        "상승베팅_비율_퍼센트": up_pct,
-        "하락베팅_비율_퍼센트": (100 - up_pct) if up_pct is not None else None,
-        "총콜볼륨": base.get("total_call_volume"),
-        "총풋볼륨": base.get("total_put_volume"),
-        "지지저항레벨": base.get("levels"),
-        "밴드트렌드": base.get("band_trend"),
-        "어제대비": day_over_day,
-        "만기별": [_expiry_block(em) for em in base.get("expiry_metrics", {}).values()],
-        "거래량이상": volume_anomaly,
-        "OI급변_이상신호": anomalies[:6],
-        "어제요약": _prev_summary(prev),
-        "최근추이": trend,
-        "거래집중_콜": (base.get("top_call_volume") or [])[:5],
-        "거래집중_풋": (base.get("top_put_volume") or [])[:5],
-    }
-
-
-def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
-                    eventinfo=None, day_over_day=None,
-                    feedback=None, learning_context=None) -> str | None:
+def generate_experiment_blurb(
+    data, base, day_over_day=None, feedback=None, learning_context=None, eventinfo=None
+) -> str | None:
+    """실험형 리포트용 초보자 2~3줄. 실패 시 None."""
     if not config.LLM_ENABLED or config.LLM_PROVIDER != "openai":
         return None
     if not config.OPENAI_API_KEY:
@@ -192,31 +34,58 @@ def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
     try:
         from openai import OpenAI
 
+        dod = day_over_day or {}
+        fb = feedback or {}
+        payload = {
+            "티커": data.get("ticker"),
+            "날짜": data.get("date"),
+            "현재가": data.get("spot"),
+            "전일대비_퍼센트": dod.get("spot_change_pct") or base.get("price_change_pct"),
+            "옵션거래량배": dod.get("volume_mult"),
+            "C/P오늘": dod.get("cpr_today") or base.get("call_put_volume_ratio"),
+            "어제관심_콜": (dod.get("prev_top_calls") or [])[:3],
+            "채점요약": (fb.get("accuracy") or {}).get("summary"),
+            "교훈후보": fb.get("lesson"),
+            "저신뢰": bool(base.get("low_confidence")),
+            "학습패턴": (learning_context or {}).get("학습패턴"),
+        }
         client = OpenAI(api_key=config.OPENAI_API_KEY)
-        payload = _build_payload(
-            data, base, anomalies, volume_anomaly, prev, trend, eventinfo, day_over_day,
-            feedback=feedback, learning_context=learning_context,
-        )
         resp = client.chat.completions.create(
             model=config.LLM_MODEL,
-            temperature=config.LLM_TEMPERATURE,
-            max_tokens=config.LLM_MAX_TOKENS,
+            temperature=min(float(config.LLM_TEMPERATURE), 0.4),
+            max_tokens=280,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {
                     "role": "user",
-                    "content": "아래 데이터로 오늘의 리포트를 작성해줘. "
-                    "짧고 리듬 있게, 번호 초안/뉴스 섹션 금지. "
-                    "학습컨텍스트.개선지시가 있으면 반영해:\n"
-                    + json.dumps(payload, ensure_ascii=False, indent=2),
+                    "content": (
+                        "아래 관측으로 '쉽게 말하면' 2~3문장만 써줘. "
+                        "예측 단정 금지, 오늘 실험 결과 요약 위주:\n"
+                        + json.dumps(payload, ensure_ascii=False, indent=2)
+                    ),
                 },
             ],
         )
         text = resp.choices[0].message.content
-        return text.strip() if text else None
+        if not text:
+            return None
+        t = text.strip()
+        for prefix in ("💡 쉽게 말하면", "쉽게 말하면", "💡"):
+            if t.startswith(prefix):
+                t = t[len(prefix) :].lstrip("\n: ：")
+        return t.strip() or None
     except Exception as e:  # noqa: BLE001
-        print(f"[llm] OpenAI 호출 실패 → 규칙기반 폴백: {e}")
+        print(f"[llm] experiment blurb 실패 → 생략: {e}")
         return None
+
+
+def generate_report(data, base, anomalies, volume_anomaly, prev, trend,
+                    eventinfo=None, day_over_day=None,
+                    feedback=None, learning_context=None) -> str | None:
+    """하위 호환 — blurb만 반환."""
+    return generate_experiment_blurb(
+        data, base, day_over_day, feedback, learning_context, eventinfo
+    )
 
 
 # ------------------------------------------------------------------ #

@@ -603,4 +603,17 @@ def build_day_over_day(data: dict, base: dict, prev: dict | None) -> dict | None
         "band_delta_pp": band_delta,
         "highlights": unusual,  # 특이사항만
         "has_unusual": bool(unusual),
+        "prev_spot": prev_spot,
+        "today_spot": spot,
+        "volume_today": vol_t,
+        "volume_prev": vol_p,
+        "cpr_today": base.get("call_put_volume_ratio"),
+        "cpr_prev": prev_m.get("call_put_volume_ratio"),
+        "oi_today": base.get("total_open_interest"),
+        "oi_prev": prev_m.get("total_open_interest"),
+        "prev_levels": (prev_m.get("levels") or {}),
+        "prev_top_calls": (prev_m.get("top_call_volume") or [])[:5],
+        "prev_top_puts": (prev_m.get("top_put_volume") or [])[:5],
+        "today_top_calls": (base.get("top_call_volume") or [])[:5],
+        "today_top_puts": (base.get("top_put_volume") or [])[:5],
     }

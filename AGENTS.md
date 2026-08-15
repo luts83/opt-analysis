@@ -33,9 +33,10 @@
 | `metrics.py` | V/OI, 밴드, OI 밀집, anomalies |
 | `price_levels.py` | 관심 가격·역할 전환·상단 확장 (OI≠지지저항) |
 | `pattern_store.py` | 학습 후보 저장. 최소표본 전엔 예측 가중치 금지 |
-| `insights.py` / `llm.py` | 규칙 인사이트 + OpenAI 해설 |
+| `insights.py` / `llm.py` | 실험형 본문 오케스트레이션 + OpenAI blurb/주간 |
 | `learning.py` | 일일 예측 채점·자기학습 |
-| `report_builder.py` / `report_evidence.py` / `report_polish.py` | 리포트 조립·근거·다듬기 |
+| `report_flow.py` | 실험형 일일 리포트 조립 (변화→반응→학습) |
+| `report_evidence.py` / `report_polish.py` | 근거 블록·후처리 |
 | `snapshot_store.py` | `snapshots/<TICKER>/` JSON |
 | `main.py` | 일일 엔트리 |
 | `weekly.py` / `weekly_metrics.py` | 주간 검증 |
