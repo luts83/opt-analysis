@@ -20,7 +20,9 @@ _SYSTEM_PROMPT = """너는 옵션 관측 일지를 초보 투자자에게 쉽게
 - 단일 사례로 새 예측 규칙 선언
 - 뉴스, 마크다운 링크, 섹션 번호 지시문
 
-할 일: 입력 숫자만 보고 2~3문장 '쉽게 말하면'만 작성. 비유는 최대 1개."""
+할 일: '💡 오늘 한눈에 보기'용 3~4줄. 어제 옵션 집중 → 오늘 주가 반응 → 결론(단정 금지).
+숫자 나열 금지. "그래서 무슨 일이 있었는지"만. 불릿(·) 사용.
+비유는 최대 1개만 (예: '$46 문' 앞에 거래 몰림 → 갔다가 넘지 못하고 되돌림). 전문용어·저항선·스트라이크 금지."""
 
 
 def generate_experiment_blurb(
@@ -59,8 +61,8 @@ def generate_experiment_blurb(
                 {
                     "role": "user",
                     "content": (
-                        "아래 관측으로 '쉽게 말하면' 2~3문장만 써줘. "
-                        "예측 단정 금지, 오늘 실험 결과 요약 위주:\n"
+                        "아래 관측으로 '오늘 한눈에 보기' 3~4줄만 써줘. "
+                        "· 불릿 사용. 예측·목표가 단정 금지:\n"
                         + json.dumps(payload, ensure_ascii=False, indent=2)
                     ),
                 },
@@ -70,7 +72,7 @@ def generate_experiment_blurb(
         if not text:
             return None
         t = text.strip()
-        for prefix in ("💡 쉽게 말하면", "쉽게 말하면", "💡"):
+        for prefix in ("💡 오늘 한눈에 보기", "💡 쉽게 말하면", "쉽게 말하면", "💡"):
             if t.startswith(prefix):
                 t = t[len(prefix) :].lstrip("\n: ：")
         return t.strip() or None

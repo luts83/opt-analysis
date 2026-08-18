@@ -1,6 +1,6 @@
 """리포트 본문 오케스트레이션 — 실험·학습형 일일 리포트.
 
-순서: 오늘 결과 → 옵션 변화 → 주가 반응 → 관심 가격 → 교훈 → 누적 → 다음 관찰 → 한계
+순서: 한눈에 → 어제옵션→오늘주가 → 반응가격 → 옵션변화 → 해석 → 검증 → 누적 → 한계
 """
 from __future__ import annotations
 
@@ -30,9 +30,9 @@ def build_narrative(
 ) -> tuple[str, str]:
     """(본문, 출처). 출처: 'openai' | 'rule'.
 
-    본문 골격은 항상 시스템 실험형 조립. LLM은 초보자용 2~3줄만 덧붙인다.
+    본문 골격은 항상 시스템 실험형 조립(비유 섞은 한눈에 보기 포함).
+    LLM은 사용하지 않음 — 숫자와 어긋날 수 있어 규칙 기반이 더 정확함.
     """
-    import llm
     import report_polish
 
     fb = feedback if feedback is not None else data.get("prediction_feedback")
@@ -49,22 +49,6 @@ def build_narrative(
         learning_context=ctx,
     )
     src = "rule"
-
-    blurb = llm.generate_experiment_blurb(
-        data, base, day_over_day, fb, ctx, eventinfo
-    )
-    if blurb:
-        src = "openai"
-        # 제목 다음, 가격(①) 앞에 삽입
-        marker = "① 오늘 결과"
-        if marker in body:
-            body = body.replace(
-                marker,
-                f"💡 쉽게 말하면\n{blurb.strip()}\n\n{marker}",
-                1,
-            )
-        else:
-            body = f"💡 쉽게 말하면\n{blurb.strip()}\n\n{body}"
 
     body = report_polish.polish_narrative(body)
     body = events.with_linked_news(body, eventinfo)
