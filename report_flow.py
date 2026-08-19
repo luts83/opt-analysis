@@ -130,6 +130,7 @@ def _build_case_analysis(
                 focus_calls.append(s)
         except (TypeError, ValueError, KeyError):
             pass
+    focus_call_set = {round(s, 2) for s in focus_calls}
 
     reactions: list[dict] = []
     # 어제 집중 + 오늘 levels 관심 가격
@@ -150,7 +151,7 @@ def _build_case_analysis(
         code, label = _price_reaction(s, high=high, low=low, close=close, spot=spot)
         reactions.append({"strike": s, "code": code, "label": label})
 
-    # 핵심 테스트 가격 — 고가에 가장 가까운 실제 반응
+    # 핵심 테스트 가격(전체) — 고가에 가장 가까운 실제 반응
     tested_codes = ("test_reject", "break_hold", "tested", "support_hold", "support_fail")
     tested = [r for r in reactions if r["code"] in tested_codes]
     primary = None
@@ -159,20 +160,36 @@ def _build_case_analysis(
     elif tested:
         primary = tested[0]
 
-    # 일치 여부
+    # 집중(어제 Top Call) 가격 안에서의 테스트 여부
+    focus_tested = [
+        r
+        for r in reactions
+        if round(float(r["strike"]), 2) in focus_call_set
+        and r["code"] in tested_codes
+    ]
+    primary_focus = None
+    if focus_tested and high is not None:
+        primary_focus = min(focus_tested, key=lambda r: abs(r["strike"] - float(high)))
+    elif focus_tested:
+        primary_focus = focus_tested[0]
+
+    # 일치 여부(집중 가격 기준 우선)
     match = "unknown"
-    if primary:
-        if primary["code"] in ("break_hold", "tested", "test_reject"):
+    if primary_focus:
+        if primary_focus["code"] in ("break_hold", "tested", "test_reject"):
             match = "partial"
-        elif primary["code"] in ("support_fail",):
+        elif primary_focus["code"] in ("support_fail",):
             match = "mismatch"
         else:
             match = "weak"
+    elif primary and focus_calls and primary.get("code") in tested_codes:
+        # 집중 가격은 못 건드렸지만, 다른 관심 가격에서는 반응이 있었다
+        match = "weak"
     elif focus and chg is not None:
-        if chg > 0.5 and any(s > float(prev_spot or 0) for s in focus_calls):
+        if chg > 0.5:
             match = "partial"
         elif chg < -0.5:
-            match = "mismatch" if focus_calls else "weak"
+            match = "mismatch"
 
     match_label = {
         "partial": "부분 일치 — 관심 가격에 실제 반응 있음",
@@ -189,6 +206,7 @@ def _build_case_analysis(
         "focus": focus,
         "focus_calls": focus_calls,
         "focus_range": _strike_range(focus_calls or focus[:3]),
+        "primary_focus": primary_focus,
         "prev_spot": prev_spot,
         "high": high,
         "low": low,
@@ -336,15 +354,23 @@ def yesterday_options_today_price_block(
 
     # ② 오늘 테스트
     primary = a["primary"]
+    primary_focus = a.get("primary_focus")
     hi = a["high"]
-    if primary and hi is not None:
-        ps = _fmt_px(primary["strike"])
-        if primary["code"] in ("test_reject", "tested", "break_hold"):
-            L.append(f"② 오늘 테스트: {ps} 돌파 시도 → 고가 {_fmt_px(hi)}")
-        elif primary["code"] == "support_hold":
-            L.append(f"② 오늘 테스트: {ps} 아래쪽 지지 테스트")
+    if primary_focus and hi is not None:
+        ps = _fmt_px(primary_focus["strike"])
+        if primary_focus["code"] in ("test_reject", "tested", "break_hold"):
+            L.append(f"② 오늘 테스트: 어제 집중 가격 {ps} 돌파 시도 → 고가 {_fmt_px(hi)}")
+        elif primary_focus["code"] == "support_hold":
+            L.append(f"② 오늘 테스트: 어제 집중 가격 {ps} 아래쪽 지지 테스트")
         else:
-            L.append(f"② 오늘 테스트: {ps} 근접 — {primary['label']}")
+            L.append(f"② 오늘 테스트: 어제 집중 가격 {ps} 근접 — {primary_focus['label']}")
+    elif primary and hi is not None and a["focus_calls"]:
+        # 어제 집중 가격은 못 건드리고, 대신 다른 관심 가격에서 반응
+        focus_rng = _strike_range(a["focus_calls"][:3])
+        ps = _fmt_px(primary["strike"])
+        L.append(
+            f"② 오늘 테스트: 어제 집중 가격 {focus_rng}은 미접촉 — 대신 {ps} 근처를 테스트(고가 {_fmt_px(hi)})"
+        )
     elif hi is not None:
         L.append(f"② 오늘 테스트: 주요 관심가 미접촉 · 고가 {_fmt_px(hi)}")
     else:
@@ -567,7 +593,7 @@ def next_verify_block(
         if abs(float(z0) - float(z1)) < 0.01:
             L.append(f"· {_fmt_px(z0)} 구간 실제 반응 여부 (목표가 아님)")
         else:
-            L.append(f"· ${_fmt_px(z0)}~${_fmt_px(z1)} 구간 실제 반응 여부 (목표가 아님)")
+            L.append(f"· {_fmt_px(z0)}~{_fmt_px(z1)} 구간 실제 반응 여부 (목표가 아님)")
 
     L.append("· 먼 콜 OI가 커도 다음날 반대로 가면 '설명 실패'로 기록")
     if len(L) == 1:
