@@ -53,8 +53,9 @@ def _parse_command(text: str) -> tuple[str | None, list[str]]:
     return cmd, parts[1:]
 
 
-def _run_report(ticker: str | None, *, reason: str, send_email: bool = True) -> None:
-    # 스케줄/수동 모두 이메일 발송 (GitHub Actions 와 중복될 수 있으나 누락보다 나음)
+def _run_report(ticker: str | None, *, reason: str, send_email: bool | None = None) -> None:
+    if send_email is None:
+        send_email = config.EMAIL_ENABLED
     argv: list[str] = []
     if not send_email:
         argv.append("--no-email")

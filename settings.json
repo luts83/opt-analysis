@@ -23,7 +23,7 @@
     "temperature": 0.5
   },
   "email": {
-    "enabled": true,
+    "enabled": false,
     "attach_json": true,
     "subject_prefix": "[옵션리포트]",
     "weekly_subject_prefix": "[옵션주간검증]"

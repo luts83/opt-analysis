@@ -34,7 +34,8 @@ make report-preview                   # 스모크
 
 - [ ] `/report IREN` 또는 `make report-preview`로 문구 확인 후 커밋·푸시
 - [ ] Railway에 weekly 서비스가 남아 있으면 Actions와 이중 발송 여부 확인
-- [ ] 메일 발송 끄기(`settings.json` email.enabled)는 아직 미적용
+- [x] 메일 발송 끄기(`settings.json` email.enabled: false) + Actions `--no-email`
+- [x] 일일 Actions 이중 cron(05:07+05:37) 제거 → 05:07 1회, 발송은 Railway 봇만
 
 ## 방금 한 일 / 주의
 

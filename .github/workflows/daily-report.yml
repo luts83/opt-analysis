@@ -1,11 +1,11 @@
 name: Daily Options Report
 
-# 영국 아침 ≈ 06:07 / 06:37 BST (UTC 05:07 / 05:37)
-# ※ timezone 키는 일부 환경에서 schedule 등록을 깨뜨려 UTC cron 만 사용.
+# 영국 아침 ≈ 06:07 BST (UTC 05:07) — 한 번만.
+# Railway bot.py 가 텔레그램 발송; Actions 는 스냅샷 백업만 (발송 없음).
+# (예전 05:07+05:37 이중 cron → 30분 뒤 중복 리포트)
 "on":
   schedule:
     - cron: "7 5 * * 2-6"
-    - cron: "37 5 * * 2-6"
   workflow_dispatch:
   repository_dispatch:
     types: [daily-report]
@@ -58,7 +58,7 @@ jobs:
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
           EMAIL_RECIPIENTS: ${{ secrets.EMAIL_RECIPIENTS }}
         run: |
-          python main.py | tee report_output.txt
+          python main.py --no-telegram --no-email | tee report_output.txt
 
       - name: Upload report as artifact
         if: steps.gate.outputs.skip != 'true'

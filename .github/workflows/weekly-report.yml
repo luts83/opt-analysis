@@ -67,7 +67,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python weekly.py | tee weekly_output.txt
+          python weekly.py --no-email | tee weekly_output.txt
 
       - name: Upload weekly report as artifact
         if: steps.gate.outputs.skip != 'true'
