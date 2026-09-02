@@ -422,6 +422,322 @@ def _option_verdict(prev_calls: list[OptionRef], day: dict, prev_as_of: str) -> 
     )
 
 
+def _judge_signal(
+    ref: OptionRef,
+    day: dict,
+    prev_as_of: str,
+    *,
+    chg: float | None = None,
+) -> dict[str, str]:
+    """어제 옵션 1건 → 오늘 주가 판정."""
+    chg = chg if chg is not None else day["chg_pct"]
+    hi, lo, cl = day["high"], day["low"], day["close"]
+    opt = _fmt_opt_ref(ref, prev_as_of)
+    _, timing = _expiry_timing(ref.expiry, prev_as_of, ref.role)
+
+    if ref.opt_type == "CALL":
+        expect = "단기 상방 관심 (어제 콜 거래 집중)"
+        actual = f"{_fmt_px(day['open'])}→{_fmt_px(cl)} (고 {_fmt_px(hi)} / 저 {_fmt_px(lo)})"
+        if hi >= ref.strike * 0.995:
+            if cl >= ref.strike * 0.99:
+                verdict, note = "✅ 영향 있음", f"{opt} 돌파·종가 유지"
+            else:
+                verdict, note = "⚠️ 부분", f"{opt} 터치 후 되돌림"
+        elif chg <= -1:
+            verdict, note = "❌ 미적중", f"콜 집중인데 하락 ({chg:+.1f}%)"
+        else:
+            verdict, note = "❌ 미적중", f"집중가 미접촉 (고 {_fmt_px(hi)})"
+    else:
+        expect = "하락·헤지 관심 (어제 풋 거래 집중)"
+        actual = f"{_fmt_px(day['open'])}→{_fmt_px(cl)} (고 {_fmt_px(hi)} / 저 {_fmt_px(lo)})"
+        if chg <= -1.5:
+            verdict, note = "✅ 영향 있음", f"풋 신호와 하락 일치 ({chg:+.1f}%)"
+        elif chg >= 1:
+            verdict, note = "❌ 미적중", f"풋 집중인데 상승 ({chg:+.1f}%)"
+        elif lo <= ref.strike * 1.01:
+            verdict, note = "⚠️ 부분", f"풋 행사가 근처까지 하락"
+        else:
+            verdict, note = "❌ 미적중", f"풋 신호 대비 움직임 약함"
+
+    return {
+        "kind": "콜" if ref.opt_type == "CALL" else "풋",
+        "signal": opt,
+        "timing": timing,
+        "expect": expect,
+        "actual": actual,
+        "verdict": verdict,
+        "note": note,
+    }
+
+
+def _yesterday_signal_refs(
+    prev_snap: dict | None,
+    day: dict,
+    anomalies: list | None,
+) -> list[tuple[OptionRef, str]]:
+    """판정용 — 어제 콜 1건 + (하락·풋 급증일) 풋 1건."""
+    if not prev_snap:
+        return []
+    rows: list[tuple[OptionRef, str]] = []
+    for ref in _top_option_refs(prev_snap, 1, "CALL"):
+        rows.append((ref, "콜"))
+    put_surge = any(
+        isinstance(a, dict) and "PUT" in (a.get("message") or "").upper()
+        for a in (anomalies or [])
+    )
+    if day["chg_pct"] <= -2 or put_surge:
+        for ref in _top_option_refs(prev_snap, 1, "PUT"):
+            rows.append((ref, "풋"))
+    return rows
+
+
+def _overall_signal_verdict(judgments: list[dict[str, str]]) -> str:
+    if not judgments:
+        return "판정 보류 — 어제 스냅샷 없음"
+    calls = [j for j in judgments if j["kind"] == "콜"]
+    puts = [j for j in judgments if j["kind"] == "풋"]
+    if calls:
+        call_codes = [c["verdict"] for c in calls]
+        if all("미적중" in c for c in call_codes):
+            if puts and any("영향 있음" in p["verdict"] for p in puts):
+                return "어제 콜(상방) 신호는 미적중 · 풋(하락) 신호는 일치"
+            if any("부분" in c for c in call_codes):
+                return "어제 콜 신호는 터치만 — 종가 기준으론 애매함"
+            return "어제 옵션 상방 신호는 오늘 주가에 영향 없음"
+        if any("영향 있음" in c for c in call_codes):
+            return "어제 콜 신호가 오늘 주가 움직임과 연결됨"
+        if any("부분" in c for c in call_codes):
+            return "어제 콜 신호는 터치 수준 — 종가 기준으론 애매함"
+    if puts:
+        if any("영향 있음" in p["verdict"] for p in puts):
+            return "어제 풋(하락) 신호가 오늘 주가와 일치"
+        return "어제 풋 신호 대비 주가 반응 약함"
+    return "어제 옵션·오늘 주가 연결 약함"
+
+
+def _signal_vs_stock_block(
+    prev_snap: dict | None,
+    day: dict,
+    prev_as_of: str,
+    anomalies: list | None,
+) -> tuple[str, list[dict[str, str]]]:
+    """📋 어제 옵션 → 오늘 주가 (관심가 나열 아님)."""
+    rows = _yesterday_signal_refs(prev_snap, day, anomalies)
+    L = ["📋 어제 옵션 → 오늘 주가"]
+    judgments: list[dict[str, str]] = []
+    if not rows:
+        L.append("· 어제 스냅샷 없음 — 신호 판정 불가")
+        return "\n".join(L), judgments
+
+    for i, (ref, kind) in enumerate(rows, 1):
+        j = _judge_signal(ref, day, prev_as_of)
+        judgments.append(j)
+        L.append("")
+        L.append(f"{i}) {kind} · {j['signal']} ({j['timing']})")
+        L.append(f"   기대: {j['expect']}")
+        L.append(f"   실제: {j['actual']}")
+        L.append(f"   판정: {j['verdict']} — {j['note']}")
+    return "\n".join(L), judgments
+
+
+def _today_conclusion(
+    day: dict,
+    news: list[dict],
+    judgments: list[dict[str, str]],
+    prev_as_of: str,
+    prev_snap: dict | None,
+) -> str:
+    """💡 오늘의 결론 — 한눈에 판정."""
+    chg = day["chg_pct"]
+    mood = "🟢" if chg > 1.5 else "🔴" if chg < -1.5 else "🟡"
+    summary = _overall_signal_verdict(judgments)
+    L = ["💡 오늘의 결론"]
+    L.append(
+        f"· {summary}. "
+        f"주가 {mood} {_fmt_px(day['open'])}→{_fmt_px(day['close'])} ({chg:+.1f}%)."
+    )
+    news_ctx = _news_day_context(news, day)
+    if news_ctx:
+        L.append(f"· {news_ctx}")
+    elif judgments and all("미적중" in j["verdict"] for j in judgments):
+        calls = _top_option_refs(prev_snap, 2, "CALL")
+        if calls and day["high"] < min(r.strike for r in calls) * 0.9:
+            focus = _fmt_opt_refs(calls, prev_as_of, 2)
+            L.append(
+                f"· 어제 {focus} 집중이었으나 오늘 고 {_fmt_px(day['high'])} — "
+                f"옵션보다 주가가 앞섬"
+            )
+    return "\n".join(L)
+
+
+def _append_timeline_compact(
+    L: list[str],
+    df: pd.DataFrame,
+    *,
+    episodes: int,
+    day: dict,
+) -> None:
+    """장중 주가만 — 옵션 각주 없음."""
+    if df.empty:
+        L.append("🕐 장중 실제 움직임")
+        L.append(f"· 5분봉 없음 — 종가 {_fmt_px(day['close'])} 기준")
+        L.append("")
+        return
+    eps = segment_three_acts(df) if episodes <= 3 else segment_fine(df, max_n=episodes)
+    fine = episodes > 3
+    act_label = "3막" if not fine else f"{len(eps)}구간"
+    L.append(f"🕐 장중 실제 움직임 ({act_label})")
+    for i, ep in enumerate(eps):
+        stock = _narrate_stock(ep, day, fine=fine)
+        if fine:
+            head = f"{i + 1}) {_fmt_range(ep.start, ep.end)}"
+        else:
+            head = f"{i + 1}) {ep.title} ({_fmt_range(ep.start, ep.end)})"
+        L.append(head)
+        L.append(f"   {stock}")
+    L.append("")
+
+
+def _compact_lesson_line(fb: dict | None) -> str | None:
+    if not fb or not fb.get("available"):
+        return None
+    import report_evidence as ev
+
+    bl = ev.beginner_lesson(fb.get("lesson"), fb.get("missed_signals") or [])
+    if not bl:
+        missed = fb.get("missed_signals") or []
+        if missed:
+            short = missed[0] if len(missed[0]) <= 100 else missed[0][:97] + "..."
+            return f"주목: {short}"
+        return None
+    for ln in bl.split("\n"):
+        ln = ln.strip()
+        if ln and not ln.startswith("💡") and not ln.startswith("→"):
+            return ln[:120]
+    return None
+
+
+def _learning_today(fb: dict | None, ctx: dict | None, ticker: str) -> str:
+    """📚 오늘의 학습 — 본문용 압축."""
+    import learning as learn
+
+    L = ["📚 오늘의 학습"]
+    if fb and fb.get("available"):
+        g = (fb.get("accuracy") or {}).get("grade") or {}
+        grade = g.get("grade", "?")
+        score = g.get("score", "?")
+        pdate = fb.get("prediction_date") or "?"
+        L.append(f"· 어제({pdate}) 예측 → 오늘 채점 {grade} ({score}점)")
+
+        acc = fb.get("accuracy") or {}
+        bits: list[str] = []
+        if acc.get("band") == "PASS":
+            bits.append("밴드✓")
+        elif acc.get("band") == "FAIL":
+            bits.append("밴드✗")
+        if acc.get("support") == "PASS":
+            bits.append("지지✓")
+        elif acc.get("support") == "FAIL":
+            bits.append("지지✗")
+        if acc.get("direction") == "PASS":
+            bits.append("방향✓")
+        elif acc.get("direction") == "FAIL":
+            bits.append("방향✗")
+        if bits:
+            L.append(f"  {' · '.join(bits)}")
+
+        lesson = _compact_lesson_line(fb)
+        if lesson:
+            L.append(f"· 교훈: {lesson}")
+    else:
+        note = (fb or {}).get("note") or "직전 예측 채점 데이터 없음"
+        L.append(f"· {note}")
+
+    stats = (ctx or {}).get("최근7일") or learn.cumulative_stats(ticker, limit=7)
+    if stats.get("available"):
+        n = stats.get("n") or 0
+        band = stats.get("band_accuracy_pct")
+        if band is not None:
+            L.append(f"· 누적 {n}회 · 밴드 {band}% (상세는 ↓ 참고자료)")
+    return "\n".join(L)
+
+
+def _build_reference_appendix(
+    *,
+    data: dict,
+    base: dict,
+    day: dict,
+    dod: dict | None,
+    anomalies: list,
+    vol_anom: dict | None,
+    snap: dict,
+    fb: dict | None,
+    ctx: dict | None,
+    ticker: str,
+    date: str,
+    eventinfo: dict,
+    news: list[dict],
+    nxt: dict | None,
+    prev_as_of: str,
+) -> str:
+    """📎 참고자료 — 지지/저항·옵션·뉴스·채점 상세."""
+    import events
+    import learning
+    import market_clock
+    import report_builder
+    import report_evidence as ev
+    import report_flow
+
+    L: list[str] = ["", "─" * 40, "📎 참고자료", ""]
+
+    L.append(market_clock.format_price_line(data))
+    price_note = (eventinfo.get("price") or {}).get("note")
+    if price_note:
+        L.append(f"· {price_note}")
+    L.append("")
+
+    L.append(_option_change_plain(dod, anomalies, day, snap, date))
+    L.append("")
+
+    opt_rx = eventinfo.get("options_reaction")
+    if opt_rx and opt_rx.get("summary"):
+        L.append("📈 어닝·이벤트 옵션 반응")
+        L.append(f"· {opt_rx['summary']}")
+        L.append("")
+
+    L.append("📰 관련 뉴스")
+    if news:
+        L.extend(events.format_news_lines(news, limit=5))
+    else:
+        L.append("- 오늘 유의미한 종목 관련 뉴스 없음")
+    L.append("")
+
+    scenarios = ev.format_scenarios(nxt)
+    if scenarios:
+        L.append(scenarios)
+        L.append("")
+
+    fb_full = learning.format_feedback_section(fb, include_lesson=True)
+    if fb_full.strip():
+        L.append(fb_full.rstrip())
+        L.append("")
+
+    L.append(report_flow.cumulative_learning_block(ticker, ctx))
+    L.append("")
+
+    L.append(report_flow.limits_block(base))
+    L.append("")
+
+    L.extend(
+        report_builder.format_data_summary(
+            data, base, anomalies, vol_anom, narrative_source="stock"
+        )
+    )
+    L.append("")
+    L.append("⚠️ 관측·학습 기록이며 투자 조언이 아닙니다.")
+    return "\n".join(L)
+
+
 def _watch_lines(
     prev_calls: list[OptionRef], near: list[OptionRef], day: dict, report_date: str
 ) -> list[str]:
@@ -674,6 +990,36 @@ def _day_story_block(
     return "\n".join(L)
 
 
+def _watch_verify_block(
+    day: dict,
+    judgments: list[dict[str, str]],
+) -> str:
+    """📌 내일 검증 — 관심가 나열 없이 판정 확인 포인트만."""
+    L = ["📌 내일 검증"]
+    spot = day["close"]
+    chg = day["chg_pct"]
+
+    if chg <= -3:
+        L.append("· 장 초반 30분: 급락 후 반등 vs 추가 하락")
+        L.append(f"· {_fmt_px(spot)} 유지 vs 이탈 — 오늘 저점이 지지인지")
+    elif chg >= 3:
+        L.append("· 급등 후 되돌림 vs 추세 지속")
+        L.append(f"· {_fmt_px(spot)} 위 유지 vs 되돌림")
+    else:
+        L.append(f"· {_fmt_px(spot)} 근처 박스 vs 방향 선택")
+
+    for j in judgments:
+        if j["kind"] == "콜" and "미적중" in j["verdict"]:
+            L.append("· 어제 콜 신호가 계속 무시되는지 vs 드디어 반영되는지")
+            break
+        if j["kind"] == "콜" and "영향 있음" in j["verdict"]:
+            L.append("· 어제 콜 신호 돌파가 유지되는지 vs 되돌림인지")
+            break
+
+    L.append("· 목표가 아님 — 어제·오늘 판정이 맞는지만 확인")
+    return "\n".join(L)
+
+
 def _watch_block(nxt: dict | None, day: dict, fb: dict | None) -> str:
     """📌 내일 관찰 — 체크포인트 + 검증 통합."""
     L = ["📌 내일 관찰"]
@@ -736,12 +1082,9 @@ def build_full_report(
     episodes: int = 3,
     snap: dict | None = None,
 ) -> str:
-    """주가 3막 + 기존 유용 섹션(뉴스·옵션변화·시나리오·채점·학습) 통합."""
+    """선형 스토리: 결론 → 신호판정 → 장중 → 학습 → 내일 / 참고자료."""
     import events
-    import learning
-    import market_clock
     import report_evidence as ev
-    import report_flow
     import snapshot_store
 
     if snap is None:
@@ -778,8 +1121,19 @@ def build_full_report(
         ticker, _prev_trading_snapshot_date(ticker, date)
     )
     prev_as_of = prev_snap.get("date", prev_date) if prev_snap else prev_date
-    prev_calls = _top_option_refs(prev_snap, 3)
-    near = _near_strikes(snap, day["close"], date)
+
+    news = eventinfo.get("news") or []
+    earn = eventinfo.get("earnings") or {}
+
+    signal_block, judgments = _signal_vs_stock_block(
+        prev_snap, day, prev_as_of, anomalies
+    )
+
+    nxt = events.next_session_scenarios(
+        base, day["close"], data=data, earnings=earn or None
+    )
+    if nxt:
+        nxt["reference_spot"] = round(day["close"], 2)
 
     L: list[str] = []
     L.append(f"📊 {ticker} 데일리")
@@ -791,78 +1145,38 @@ def build_full_report(
         L.append(banner)
         L.append("")
 
-    earn = eventinfo.get("earnings") or {}
     if earn.get("phase") in ("임박", "직후") and earn.get("message"):
         L.append(f"🚨 {earn['message']}")
         L.append("")
 
-    L.append(market_clock.format_price_line(data))
-    price_note = (eventinfo.get("price") or {}).get("note")
-    if price_note:
-        L.append(f"· {price_note}")
+    L.append(_today_conclusion(day, news, judgments, prev_as_of, prev_snap))
     L.append("")
-
-    fb_block = learning.format_feedback_section(fb, include_lesson=False)
-    if fb_block.strip():
-        L.append(fb_block.rstrip())
-        L.append("")
-
-    news = eventinfo.get("news") or []
-    L.append(_headline_block(day, news, prev_calls, prev_as_of))
+    L.append(signal_block)
     L.append("")
+    _append_timeline_compact(L, df, episodes=episodes, day=day)
+    L.append(_learning_today(fb, ctx, ticker))
+    L.append("")
+    L.append(_watch_verify_block(day, judgments))
 
-    _append_timeline_section(
-        L, df, episodes=episodes,
-        prev_calls=prev_calls, near=near, day=day,
-        report_date=date, prev_as_of=prev_as_of,
+    L.append(
+        _build_reference_appendix(
+            data=data,
+            base=base,
+            day=day,
+            dod=dod,
+            anomalies=anomalies,
+            vol_anom=vol_anom,
+            snap=snap,
+            fb=fb,
+            ctx=ctx,
+            ticker=ticker,
+            date=date,
+            eventinfo=eventinfo,
+            news=news,
+            nxt=nxt,
+            prev_as_of=prev_as_of,
+        )
     )
-
-    L.append("📊 옵션 ↔ 주가 검증")
-    L.append(_option_verdict(prev_calls, day, prev_as_of))
-    L.append("")
-
-    L.append(_price_moves_plain(day, data, base, dod, fb))
-    L.append("")
-
-    L.append(_option_change_plain(dod, anomalies, day, snap, date))
-    L.append("")
-
-    L.append(_day_story_block(day, news, prev_calls, dod, prev_as_of))
-    L.append("")
-
-    L.append("📰 관련 뉴스")
-    if news:
-        L.extend(events.format_news_lines(news, limit=3))
-    else:
-        L.append("- 오늘 유의미한 종목 관련 뉴스 없음")
-    L.append("")
-
-    opt_rx = eventinfo.get("options_reaction")
-    if opt_rx and opt_rx.get("summary"):
-        L.append("📈 어닝·이벤트 옵션 반응")
-        L.append(f"· {opt_rx['summary']}")
-        L.append("")
-
-    # 시나리오는 종가 기준으로 재계산 (스냅샷 시점 spot과 다를 수 있음)
-    nxt = events.next_session_scenarios(
-        base, day["close"], data=data, earnings=earn or None
-    )
-    if nxt:
-        nxt["reference_spot"] = round(day["close"], 2)
-    scenarios = ev.format_scenarios(nxt)
-    if scenarios:
-        L.append(scenarios)
-        L.append("")
-
-    L.append(_watch_block(nxt, day, fb))
-    L.append("")
-
-    L.append(report_flow.cumulative_learning_block(ticker, ctx))
-    L.append("")
-
-    L.append(report_flow.limits_block(base))
-    L.append("")
-    L.append("⚠️ 관측·학습 기록이며 투자 조언이 아닙니다.")
     return "\n".join(L)
 
 

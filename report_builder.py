@@ -29,15 +29,18 @@ def _volume_lines(rows: list[dict]) -> list[str]:
     return out
 
 
-def build_report(data: dict, base: dict, anomalies: list[dict],
-                 volume_anomaly: dict | None, narrative: str,
-                 narrative_source: str, eventinfo: dict | None = None) -> str:
+def format_data_summary(
+    data: dict,
+    base: dict,
+    anomalies: list[dict],
+    volume_anomaly: dict | None,
+    *,
+    narrative_source: str = "rule",
+) -> list[str]:
+    """V/OI·거래량·정확도 등 숫자 참고자료."""
     L: list[str] = []
-
-    L.append(narrative)
-    L.append("")
     L.append("─" * 40)
-    L.append("📋 데이터 요약 (본문에 없는 숫자)")
+    L.append("📋 데이터 요약")
 
     src = base.get("oi_source", "-")
     ai = {
@@ -48,7 +51,6 @@ def build_report(data: dict, base: dict, anomalies: list[dict],
     L.append(f"   OI {src} | 해설:{ai} | 심리 {base.get('sentiment')} "
              f"(C/P {base.get('call_put_volume_ratio')})")
 
-    # V/OI 상위 (표처럼 짧게)
     L.append("   · V/OI 상위:")
     if base.get("top_voi"):
         for i, r in enumerate(base["top_voi"][:5], 1):
@@ -86,5 +88,19 @@ def build_report(data: dict, base: dict, anomalies: list[dict],
             bits.append(f"방향 {s7['direction_accuracy_pct']}%")
         if bits:
             L.append(f"   · 최근7일 정확도: {', '.join(bits)} (n={s7.get('n')})")
+    return L
 
+
+def build_report(data: dict, base: dict, anomalies: list[dict],
+                 volume_anomaly: dict | None, narrative: str,
+                 narrative_source: str, eventinfo: dict | None = None) -> str:
+    if narrative_source == "stock":
+        return narrative
+
+    L: list[str] = [narrative, ""]
+    L.extend(
+        format_data_summary(
+            data, base, anomalies, volume_anomaly, narrative_source=narrative_source
+        )
+    )
     return "\n".join(L)
