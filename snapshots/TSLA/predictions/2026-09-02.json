@@ -1,0 +1,45 @@
+{
+  "date": "2026-09-02",
+  "prediction_date": "2026-09-01",
+  "ticker": "TSLA",
+  "predicted": {
+    "support": 350.0,
+    "resistance": 370.0,
+    "band": [
+      352.11,
+      374.93
+    ],
+    "band_pct": 3.14,
+    "sentiment": "콜 거래 우세",
+    "spot": 363.52,
+    "expiry": "2026-09-02"
+  },
+  "actual": {
+    "open": 360.86,
+    "high": 362.7,
+    "low": 352.96,
+    "close": 356.09,
+    "return_pct": -1.32
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "FAIL",
+    "direction": "FAIL",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 근접 (고가가 예상의 98% 도달) / 방향 불일치",
+    "grade": {
+      "score": 62,
+      "grade": "D",
+      "passes": 2,
+      "fails": 2
+    }
+  },
+  "missed_signals": [
+    "2026-09-04 PUT $365 V/OI 233.389 (극단) → 결과: -1.3%",
+    "2026-09-02 PUT $370 V/OI 189.546 (극단) → 결과: -1.3%",
+    "2026-09-02 PUT $365 V/OI 133.732 (극단) → 결과: -1.3%",
+    "2026-09-02 PUT $360 V/OI 87.945 (극단) → 결과: -1.3%",
+    "2026-09-04 PUT $362.5 V/OI 83.364 (극단) → 결과: -1.3%"
+  ],
+  "lesson": "거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급"
+}
