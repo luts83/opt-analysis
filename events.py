@@ -521,7 +521,8 @@ def next_session_scenarios(
         prev_c = data.get("previous_close")
         if prev_c and spot:
             change_pct = round((spot - float(prev_c)) / float(prev_c) * 100, 2)
-    max_dist = spot * 0.15  # 시나리오 1차 레벨: 현재가 ±15%
+    max_dist = spot * 0.08  # 시나리오는 현재가 ±8% 안의 가격만
+    max_dist_next = spot * 0.12  # 2차 하방은 ±12%까지
 
     strong_sup_list = levels.get("strong_support") or []
     near_sup_list = levels.get("near_support") or []
@@ -555,15 +556,22 @@ def next_session_scenarios(
     )
     # 후보가 비면 근처 레벨을 합성해 시나리오 3개를 항상 채운다
     if not supports_below:
-        supports_below = sorted({s for s in support_cands if s < spot * 0.995}, reverse=True)[:2]
+        supports_below = sorted(
+            {s for s in support_cands if s < spot * 0.995 and (spot - s) <= max_dist_next},
+            reverse=True,
+        )[:2]
     if not resists_above:
-        resists_above = sorted({s for s in resist_cands if s > spot * 1.005})[:2]
+        resists_above = sorted(
+            {s for s in resist_cands if s > spot * 1.005 and (s - spot) <= max_dist_next}
+        )[:2]
     if not supports_below:
-        supports_below = [round(spot * 0.95, 2), round(spot * 0.90, 2)]
+        supports_below = [round(spot * 0.97, 0)]
     if len(supports_below) < 2:
-        supports_below = list(supports_below) + [round(supports_below[0] * 0.93, 2)]
+        ns = round(supports_below[0] * 0.97, 0)
+        if (spot - ns) / spot <= max_dist_next / spot:
+            supports_below = list(supports_below) + [ns]
     if not resists_above:
-        resists_above = [round(spot * 1.05, 2)]
+        resists_above = [round(spot * 1.03, 0)]
 
     # 1차 = 현재가에 가장 가까운 아래/위 (멀면 안 씀)
     primary_support = supports_below[0]
@@ -575,21 +583,43 @@ def next_session_scenarios(
         reclaim = strong_sup
 
     # 근거 텍스트용 메타
+    def _exp_short(strike: float, prefer: str) -> str:
+        rows = (
+            (base.get("top_put_volume") or [])
+            if prefer == "PUT"
+            else (base.get("top_call_volume") or [])
+        )
+        for row in rows:
+            try:
+                if abs(float(row["strike"]) - strike) < 0.02 and row.get("expiry"):
+                    ed = dt.date.fromisoformat(str(row["expiry"]))
+                    return f"{ed.month}/{ed.day} 만기"
+            except (TypeError, ValueError, KeyError):
+                continue
+        return ""
+
     def _why_level(strike: float, side: str) -> str:
+        prefer = "PUT" if side == "sup" else "CALL"
+        exp = _exp_short(strike, prefer)
+        exp_bit = f" · {exp}" if exp else ""
         for item in near_sup_list + strong_sup_list:
             if abs(float(item["strike"]) - strike) < 0.02:
                 oi = item.get("oi")
-                return f"풋 포지션 밀집(OI {oi:,}) · 지지 후보" if oi else "아래 관심 가격"
+                return (
+                    f"풋 포지션 밀집(OI {oi:,}){exp_bit} · 지지 후보"
+                    if oi
+                    else f"아래 관심 가격{exp_bit}"
+                )
         for item in near_res_list + strong_res_list:
             if abs(float(item["strike"]) - strike) < 0.02:
                 oi = item.get("oi")
                 vol = item.get("volume")
                 if oi:
-                    return f"콜 포지션 밀집(OI {oi:,}) · 저항 후보"
+                    return f"콜 포지션 밀집(OI {oi:,}){exp_bit} · 저항 후보"
                 if vol:
-                    return f"콜 거래 {vol:,} · 옵션 관심 가격"
-                return "위 관심 가격"
-        return "옵션 관심 가격" if side else "레벨"
+                    return f"콜 거래 {vol:,}{exp_bit} · 옵션 관심 가격"
+                return f"위 관심 가격{exp_bit}"
+        return f"옵션 관심 가격{exp_bit}" if exp_bit else "옵션 관심 가격"
 
     regular = (data or {}).get("regular_close")
     extended = (data or {}).get("extended_price")
@@ -676,32 +706,61 @@ def next_session_scenarios(
             )
             rise_conf = "학습 후보"
 
+    def _dist_label(level: float) -> str:
+        pct = abs(level - spot) / spot * 100
+        if pct < 1.5:
+            return "바로 아래" if level < spot else "바로 위"
+        return f"현재 {_fmt_px(round(spot, 2))}에서 {pct:.0f}% {'아래' if level < spot else '위'}"
+
     candidates: list[dict] = [
         {
             "name": "하락 지속",
             "condition": (
-                f"{when} ${primary_support:g} 하회 시 → ${next_support:g} 도전"
+                f"{when} {_fmt_px(primary_support)} 깨지면 → {_fmt_px(next_support)} 시험"
+                f" ({_dist_label(primary_support)})"
             ),
-            "watch": f"${primary_support:g}({why_ps}) 이탈이면 하락 가속.",
-            "evidence": f"다음 관심 ${next_support:g} ({why_ns})",
+            "watch": (
+                f"{_fmt_px(primary_support)}({why_ps}) 이탈 시 추가 하락."
+                f" ※ {_fmt_px(next_support)}는 2차 관심"
+            ),
+            "evidence": f"옵션 풋/OI 밀집 ({why_ns})",
             "rank_bias": 4 if bearish and not vol_expand else (2 if senti in ("중립", "콜·풋 균형") else 1),
         },
         {
-            "name": "횡보",
-            "condition": f"{when} ${primary_support:g}~${primary_resist:g} 박스권",
-            "watch": "돌파/이탈 전까진 방향 단정하지 않기.",
-            "evidence": "가까운 관심 가격 사이 소화 구간",
+            "name": "횡보·되돌림",
+            "condition": (
+                f"{when} {_fmt_px(primary_support)}~{_fmt_px(primary_resist)} 박스"
+                f" ({_dist_label(primary_support)}~{_dist_label(primary_resist)})"
+            ),
+            "watch": "급락 직후 흔한 패턴 — 위·아래 먼저 깨는 쪽을 본다.",
+            "evidence": "오늘 저점·종가 근처 소화",
             "rank_bias": 3 if senti in ("중립", "콜·풋 균형") and not bearish else 2,
         },
         {
-            "name": "상승",
-            "condition": f"{when} ${primary_resist:g} 돌파{reclaim_bit}",
+            "name": "반등",
+            "condition": (
+                f"{when} {_fmt_px(primary_resist)} 회복{reclaim_bit}"
+                f" ({_dist_label(primary_resist)})"
+            ),
             "watch": rise_watch,
-            "evidence": f"${primary_resist:g} ({why_pr})",
+            "evidence": f"{_fmt_px(primary_resist)} ({why_pr})",
             "rank_bias": rise_bias,
             "confidence_note": rise_conf,
         },
     ]
+
+    # 급락했지만 종가가 1차 지지 위 → 박스/반등 시나리오 가중
+    if change_pct is not None and change_pct <= -5 and spot > primary_support * 1.01:
+        for c in candidates:
+            if c["name"] == "횡보·되돌림":
+                c["rank_bias"] += 3
+            elif c["name"] == "하락 지속":
+                c["rank_bias"] -= 1
+    # 1차 지지가 5% 이상 멀면 '하락 지속' 과장 억제
+    if (spot - primary_support) / spot > 0.05:
+        for c in candidates:
+            if c["name"] == "하락 지속":
+                c["rank_bias"] -= 2
 
     if gap_pct is not None and abs(gap_pct) >= 1.5:
         for c in candidates:
@@ -736,21 +795,29 @@ def next_session_scenarios(
     elif earnings and earnings.get("phase") == "임박":
         context = "실적 발표 임박. 방향 단정 대신 변동성·레벨 반응에 주목."
 
-    # 체크포인트: 현재가에 가까운 것부터 + 근거
-    checks: list[dict] = [
-        {
-            "text": f"${primary_support:g} 이탈 여부 — 하락 가속 첫 신호",
-            "why": why_ps,
-        },
-        {
-            "text": f"${primary_resist:g} 돌파 여부 — 반등 확인 신호",
-            "why": why_pr,
-        },
-    ]
-    if next_support and next_support != primary_support:
+    # 체크포인트: 현재가 ±8% 이내만
+    def _near(level: float) -> bool:
+        return abs(level - spot) / spot <= 0.08
+
+    checks: list[dict] = []
+    if _near(primary_support):
         checks.append(
             {
-                "text": f"${next_support:g} 도달 시 — 다음 방어/반등 관심",
+                "text": f"{_fmt_px(primary_support)} 유지 여부 — 깨지면 추가 하락",
+                "why": why_ps,
+            }
+        )
+    if _near(primary_resist):
+        checks.append(
+            {
+                "text": f"{_fmt_px(primary_resist)} 회복 여부 — 반등 확인",
+                "why": why_pr,
+            }
+        )
+    if _near(next_support) and next_support != primary_support:
+        checks.append(
+            {
+                "text": f"{_fmt_px(next_support)} — 1차 지지 깨질 때 2차 관심",
                 "why": why_ns,
             }
         )

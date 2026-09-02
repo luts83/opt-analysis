@@ -357,7 +357,7 @@ def grade_yesterday(
     }
 
 
-def format_feedback_section(fb: dict | None) -> str:
+def format_feedback_section(fb: dict | None, *, include_lesson: bool = True) -> str:
     """리포트 상단용 채점 블록 — 실패 시 원인·개선(초보자 문장) 포함."""
     import report_evidence as ev
 
@@ -437,16 +437,23 @@ def format_feedback_section(fb: dict | None) -> str:
 
     missed = fb.get("missed_signals") or []
     lesson = fb.get("lesson")
-    bl = ev.beginner_lesson(lesson, missed)
-    if bl:
-        L.append("")
-        L.append(bl)
+    if include_lesson:
+        bl = ev.beginner_lesson(lesson, missed)
+        if bl:
+            L.append("")
+            L.append(bl)
+        elif missed:
+            top = missed[0]
+            short = top if len(top) <= 110 else top[:107] + "..."
+            L.append(f"💡 주목 신호: {short}")
     elif missed:
         top = missed[0]
         short = top if len(top) <= 110 else top[:107] + "..."
         L.append(f"💡 주목 신호: {short}")
     L.append("")
     return "\n".join(L)
+
+
 
 
 # ------------------------------------------------------------------ #

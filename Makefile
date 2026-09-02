@@ -1,7 +1,8 @@
 # opt-analysis — 어디서든 같은 명령으로 개발
-.PHONY: setup doctor report report-preview bot weekly weekly-preview test help
+.PHONY: setup doctor report report-preview stock-mockup stock-report bot weekly weekly-preview test help
 
 PYTHON ?= .venv/bin/python
+EPISODES ?= 3
 
 help:
 	@echo "Targets:"
@@ -9,6 +10,8 @@ help:
 	@echo "  make doctor           환경 점검"
 	@echo "  make report           일일 리포트 (저장)"
 	@echo "  make report-preview   일일 리포트 (저장 안 함)"
+	@echo "  make stock-mockup     타임라인만 (EPISODES=3|6)"
+	@echo "  make stock-report     전체 리포트 (뉴스·시나리오·학습 포함)"
 	@echo "  make bot              텔레그램 봇"
 	@echo "  make weekly           주간 검증"
 	@echo "  make weekly-preview   주간 검증 (저장/메일 없음)"
@@ -25,6 +28,12 @@ report: doctor
 
 report-preview:
 	$(PYTHON) main.py --no-save
+
+stock-mockup:
+	$(PYTHON) stock_report.py $(TICKER) $(DATE) --episodes $(EPISODES)
+
+stock-report:
+	$(PYTHON) stock_report.py $(TICKER) $(DATE) --full --episodes $(EPISODES) --save-sample
 
 bot:
 	$(PYTHON) bot.py

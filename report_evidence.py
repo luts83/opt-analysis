@@ -764,8 +764,16 @@ def format_scenarios(nxt: dict | None) -> str:
     if not nxt or not nxt.get("scenarios"):
         return ""
     L = [nxt.get("section_title") or "🔮 시나리오 (가능성 순)"]
+    ref = nxt.get("reference_spot")
+    if ref is not None:
+        try:
+            L.append(f"※ 현재가 ${_fmt_num(ref)} 기준 · ±8% 안 가격만 (먼 옵션 strike는 2차)")
+        except Exception:
+            L.append(f"※ 현재가 ${ref} 기준 · 가까운 가격만")
     if nxt.get("gap_note"):
         L.append(nxt["gap_note"])
+    if nxt.get("context"):
+        L.append(nxt["context"])
     for s in nxt["scenarios"]:
         L.append(f"- {s['name']}: {s['condition']}")
         if s.get("watch"):

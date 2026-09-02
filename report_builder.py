@@ -40,7 +40,11 @@ def build_report(data: dict, base: dict, anomalies: list[dict],
     L.append("📋 데이터 요약 (본문에 없는 숫자)")
 
     src = base.get("oi_source", "-")
-    ai = "ChatGPT" if narrative_source == "openai" else "규칙기반"
+    ai = {
+        "openai": "ChatGPT",
+        "stock": "주가중심",
+        "rule": "규칙기반",
+    }.get(narrative_source, narrative_source)
     L.append(f"   OI {src} | 해설:{ai} | 심리 {base.get('sentiment')} "
              f"(C/P {base.get('call_put_volume_ratio')})")
 

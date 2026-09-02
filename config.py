@@ -76,6 +76,9 @@ _DEFAULTS = {
         "news_count": 5,
         "price_move_alert_pct": 8.0,
     },
+    "report": {
+        "style": "stock",
+    },
 }
 
 
@@ -92,6 +95,7 @@ def _load_settings() -> dict:
         merged["email"] = {**_DEFAULTS["email"], **data.get("email", {})}
         merged["telegram"] = {**_DEFAULTS["telegram"], **data.get("telegram", {})}
         merged["events"] = {**_DEFAULTS["events"], **data.get("events", {})}
+        merged["report"] = {**_DEFAULTS["report"], **data.get("report", {})}
         return merged
     return _DEFAULTS
 
@@ -159,3 +163,7 @@ EVENTS_ENABLED: bool = bool(_EV.get("enabled", True))
 EARNINGS_WINDOW_DAYS: int = int(_EV.get("earnings_window_days", 3))
 NEWS_COUNT: int = int(_EV.get("news_count", 5))
 PRICE_MOVE_ALERT_PCT: float = float(_EV.get("price_move_alert_pct", 8.0))
+
+# ---- 리포트 스타일 (stock | experiment) ----
+_REPORT = _S.get("report") or {}
+REPORT_STYLE: str = str(_REPORT.get("style", "stock")).lower()

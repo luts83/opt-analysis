@@ -109,18 +109,26 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         )
         data["events"] = eventinfo
 
-        narrative, narrative_source = insights_mod.build_narrative(
-            data,
-            base,
-            anomalies,
-            vol_anom,
-            prev_any,
-            trend,
-            eventinfo,
-            dod,
-            feedback=feedback,
-            learning_context=learn_ctx,
-        )
+        if config.REPORT_STYLE == "stock":
+            import stock_report
+
+            narrative = stock_report.build_full_report(
+                ticker, data["date"], snap=data
+            )
+            narrative_source = "stock"
+        else:
+            narrative, narrative_source = insights_mod.build_narrative(
+                data,
+                base,
+                anomalies,
+                vol_anom,
+                prev_any,
+                trend,
+                eventinfo,
+                dod,
+                feedback=feedback,
+                learning_context=learn_ctx,
+            )
         data["narrative"] = narrative
         data["narrative_source"] = narrative_source
 

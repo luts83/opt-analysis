@@ -36,5 +36,8 @@
     "earnings_window_days": 3,
     "news_count": 5,
     "price_move_alert_pct": 8.0
+  },
+  "report": {
+    "style": "stock"
   }
 }
