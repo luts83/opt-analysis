@@ -1,0 +1,45 @@
+{
+  "date": "2026-09-03",
+  "prediction_date": "2026-09-02",
+  "ticker": "SPCX",
+  "predicted": {
+    "support": 139.0,
+    "resistance": 145.0,
+    "band": [
+      135.8,
+      146.84
+    ],
+    "band_pct": 3.91,
+    "sentiment": "콜 거래 우세",
+    "spot": 141.32,
+    "expiry": "2026-09-04"
+  },
+  "actual": {
+    "open": 142.66,
+    "high": 143.1,
+    "low": 138.17,
+    "close": 140.71,
+    "return_pct": -1.37
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "FAIL",
+    "direction": "FAIL",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 근접 (고가가 예상의 99% 도달) / 방향 불일치",
+    "grade": {
+      "score": 75,
+      "grade": "C+",
+      "passes": 1,
+      "fails": 3
+    }
+  },
+  "missed_signals": [
+    "2026-09-04 PUT $144 V/OI 55.348 (극단) → 결과: -1.4%",
+    "2026-09-11 PUT $144 V/OI 34.887 (극단) → 결과: -1.4%",
+    "2026-09-04 PUT $143 V/OI 34.281 (극단) → 결과: -1.4%",
+    "2026-09-11 PUT $132 V/OI 32.5 (극단) → 결과: -1.4%",
+    "2026-09-11 PUT $143 V/OI 30.357 (극단) → 결과: -1.4%"
+  ],
+  "lesson": "거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}
