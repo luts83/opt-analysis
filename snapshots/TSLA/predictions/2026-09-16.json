@@ -1,0 +1,45 @@
+{
+  "date": "2026-09-16",
+  "prediction_date": "2026-09-15",
+  "ticker": "TSLA",
+  "predicted": {
+    "support": 355.0,
+    "resistance": 365.0,
+    "band": [
+      348.56,
+      367.86
+    ],
+    "band_pct": 2.69,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 358.21,
+    "expiry": "2026-09-16"
+  },
+  "actual": {
+    "open": 358.73,
+    "high": 362.39,
+    "low": 354.05,
+    "close": 356.58,
+    "return_pct": -0.6
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "FAIL",
+    "direction": "PASS",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 근접 (고가가 예상의 99% 도달) / 방향 일치",
+    "grade": {
+      "score": 59,
+      "grade": "D",
+      "passes": 2,
+      "fails": 2
+    }
+  },
+  "missed_signals": [
+    "2026-09-18 PUT $360 V/OI 24.922 (극단) → 결과: -0.6%",
+    "2026-09-18 PUT $290 V/OI 24.135 (극단) → 결과: -0.6%",
+    "2026-09-18 CALL $360 V/OI 24.17 (극단) → 결과: -0.6%",
+    "2026-09-16 CALL $360 V/OI 21.356 (극단) → 결과: -0.6%",
+    "2026-09-18 CALL $365 V/OI 17.87 (극단) → 결과: -0.6%"
+  ],
+  "lesson": "거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}
