@@ -1,0 +1,39 @@
+{
+  "date": "2026-09-22",
+  "prediction_date": "2026-09-18",
+  "ticker": "SPCX",
+  "predicted": {
+    "support": 150.0,
+    "resistance": 155.0,
+    "band": [
+      144.86,
+      160.56
+    ],
+    "band_pct": 5.14,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 152.71,
+    "expiry": "2026-09-25"
+  },
+  "actual": {
+    "open": 154.77,
+    "high": 158.13,
+    "low": 151.64,
+    "close": 151.85,
+    "return_pct": -1.89
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "HIT",
+    "direction": "PASS",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 돌파! (실제 고가 $158.13 ≥ 예상 $155) / 방향 일치",
+    "grade": {
+      "score": 79,
+      "grade": "C+",
+      "passes": 4,
+      "fails": 0
+    }
+  },
+  "missed_signals": [],
+  "lesson": null
+}
