@@ -554,7 +554,11 @@ def next_session_scenarios(
     resists_above = sorted(
         {s for s in resist_cands if s > spot * 1.005 and (s - spot) <= max_dist}
     )
-    # 후보가 비면 근처 레벨을 합성해 시나리오 3개를 항상 채운다
+    # 합성(차트만) 레벨 추적 — 옵션 근거 없으면 시나리오에 명시
+    synthetic_levels: set[float] = set()
+    option_strikes = {float(s) for s in support_cands + resist_cands}
+
+    # 후보가 비면 ±8% → ±12% → 합성 순
     if not supports_below:
         supports_below = sorted(
             {s for s in support_cands if s < spot * 0.995 and (spot - s) <= max_dist_next},
@@ -565,13 +569,19 @@ def next_session_scenarios(
             {s for s in resist_cands if s > spot * 1.005 and (s - spot) <= max_dist_next}
         )[:2]
     if not supports_below:
-        supports_below = [round(spot * 0.97, 0)]
+        synth = round(spot * 0.97, 0)
+        supports_below = [synth]
+        synthetic_levels.add(float(synth))
     if len(supports_below) < 2:
         ns = round(supports_below[0] * 0.97, 0)
         if (spot - ns) / spot <= max_dist_next / spot:
             supports_below = list(supports_below) + [ns]
+            if float(supports_below[0]) in synthetic_levels:
+                synthetic_levels.add(float(ns))
     if not resists_above:
-        resists_above = [round(spot * 1.03, 0)]
+        synth_r = round(spot * 1.03, 0)
+        resists_above = [synth_r]
+        synthetic_levels.add(float(synth_r))
 
     # 1차 = 현재가에 가장 가까운 아래/위 (멀면 안 씀)
     primary_support = supports_below[0]
@@ -582,7 +592,20 @@ def next_session_scenarios(
     if strong_sup is not None and strong_sup > spot * 1.005 and (strong_sup - spot) <= max_dist:
         reclaim = strong_sup
 
-    # 근거 텍스트용 메타
+    def _evidence_for(strike: float, why: str) -> str:
+        """옵션 근거 vs 차트상 시나리오 구분."""
+        try:
+            sf = float(strike)
+        except (TypeError, ValueError):
+            return f"차트상 시나리오: {why}"
+        in_opt = any(abs(sf - o) < 0.02 for o in option_strikes)
+        strong_why = any(k in why for k in ("OI", "거래", "만기"))
+        if sf in synthetic_levels or (not in_opt and not strong_why):
+            return f"차트상 시나리오(옵션 근거 약함): {why}"
+        if in_opt or strong_why:
+            return f"옵션 근거: {why}"
+        return f"차트상 시나리오(옵션 근거 약함): {why}"
+
     def _exp_short(strike: float, prefer: str) -> str:
         rows = (
             (base.get("top_put_volume") or [])
@@ -602,24 +625,47 @@ def next_session_scenarios(
         prefer = "PUT" if side == "sup" else "CALL"
         exp = _exp_short(strike, prefer)
         exp_bit = f" · {exp}" if exp else ""
+        # 상대·절대 OI 기준 — 약한 OI를 지지/저항으로 단정하지 않음
+        put_ois = [
+            float(it.get("oi") or 0)
+            for it in (near_sup_list + strong_sup_list)
+            if it.get("oi")
+        ]
+        call_ois = [
+            float(it.get("oi") or 0)
+            for it in (near_res_list + strong_res_list)
+            if it.get("oi")
+        ]
+        max_put = max(put_ois) if put_ois else 0
+        max_call = max(call_ois) if call_ois else 0
+
+        def _oi_strong(oi: float, max_side: float) -> bool:
+            if oi < 1000:
+                return False
+            if max_side <= 0:
+                return oi >= 1000
+            return oi >= max(1000, 0.4 * max_side)
+
         for item in near_sup_list + strong_sup_list:
             if abs(float(item["strike"]) - strike) < 0.02:
                 oi = item.get("oi")
-                return (
-                    f"풋 포지션 밀집(OI {oi:,}){exp_bit} · 지지 후보"
-                    if oi
-                    else f"아래 관심 가격{exp_bit}"
-                )
+                if oi and _oi_strong(float(oi), max_put):
+                    return f"풋 OI {oi:,}{exp_bit} · 관심(상대적 밀집, 지지 단정 아님)"
+                if oi:
+                    return f"풋 OI {oi:,}{exp_bit} · 관심 가격으로 기록"
+                return f"아래 관심 가격{exp_bit}"
         for item in near_res_list + strong_res_list:
             if abs(float(item["strike"]) - strike) < 0.02:
                 oi = item.get("oi")
                 vol = item.get("volume")
+                if oi and _oi_strong(float(oi), max_call):
+                    return f"콜 OI {oi:,}{exp_bit} · 관심(상대적 밀집, 저항 단정 아님)"
                 if oi:
-                    return f"콜 포지션 밀집(OI {oi:,}){exp_bit} · 저항 후보"
+                    return f"콜 OI {oi:,}{exp_bit} · 관심 가격으로 기록"
                 if vol:
                     return f"콜 거래 {vol:,}{exp_bit} · 옵션 관심 가격"
                 return f"위 관심 가격{exp_bit}"
-        return f"옵션 관심 가격{exp_bit}" if exp_bit else "옵션 관심 가격"
+        return f"옵션 관심 가격{exp_bit}" if exp_bit else "차트 레벨(옵션 미매칭)"
 
     regular = (data or {}).get("regular_close")
     extended = (data or {}).get("extended_price")
@@ -723,7 +769,7 @@ def next_session_scenarios(
                 f"{_fmt_px(primary_support)}({why_ps}) 이탈 시 추가 하락."
                 f" ※ {_fmt_px(next_support)}는 2차 관심"
             ),
-            "evidence": f"옵션 풋/OI 밀집 ({why_ns})",
+            "evidence": _evidence_for(next_support, why_ns),
             "rank_bias": 4 if bearish and not vol_expand else (2 if senti in ("중립", "콜·풋 균형") else 1),
         },
         {
@@ -733,7 +779,10 @@ def next_session_scenarios(
                 f" ({_dist_label(primary_support)}~{_dist_label(primary_resist)})"
             ),
             "watch": "급락 직후 흔한 패턴 — 위·아래 먼저 깨는 쪽을 본다.",
-            "evidence": "오늘 저점·종가 근처 소화",
+            "evidence": _evidence_for(
+                primary_support,
+                f"{why_ps} · {why_pr}",
+            ),
             "rank_bias": 3 if senti in ("중립", "콜·풋 균형") and not bearish else 2,
         },
         {
@@ -743,7 +792,7 @@ def next_session_scenarios(
                 f" ({_dist_label(primary_resist)})"
             ),
             "watch": rise_watch,
-            "evidence": f"{_fmt_px(primary_resist)} ({why_pr})",
+            "evidence": _evidence_for(primary_resist, why_pr),
             "rank_bias": rise_bias,
             "confidence_note": rise_conf,
         },

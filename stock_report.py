@@ -422,6 +422,28 @@ def _option_verdict(prev_calls: list[OptionRef], day: dict, prev_as_of: str) -> 
     )
 
 
+def _strike_dist_pct(strike: float, spot: float) -> float:
+    if not spot:
+        return 99.0
+    return abs(float(strike) - float(spot)) / float(spot) * 100.0
+
+
+def _price_tier(strike: float, spot: float) -> int:
+    """1=현재가±3%, 2=±5~8%, 3=원거리."""
+    d = _strike_dist_pct(strike, spot)
+    if d <= 3.0:
+        return 1
+    if d <= 8.0:
+        return 2
+    return 3
+
+
+def _tier_label(tier: int) -> str:
+    return {1: "1차(현재가 인접)", 2: "2차(중거리)", 3: "원거리 옵션 관심"}.get(
+        tier, "원거리"
+    )
+
+
 def _judge_signal(
     ref: OptionRef,
     day: dict,
@@ -429,75 +451,98 @@ def _judge_signal(
     *,
     chg: float | None = None,
 ) -> dict[str, str]:
-    """어제 옵션 1건 → 오늘 주가 판정.
+    """전일 옵션 관측 → 당일 가격 검증.
 
-    인과(옵션 때문에 주가가 움직임)는 확정하지 않는다.
-    판정은 '동조/접근/어긋남' 수준만. 행사(exercise) 여부가 아님.
+    규칙:
+    - 콜/풋 거래량 ≠ 매수/매도 ≠ 방향 베팅 확정
+    - 판정은 가격이 그 strike에 접근·반응했는지(적중/부분/미검증)
+    - '기대와 방향이 달랐다' 식의 방향 확정 문구 금지
     """
-    chg = chg if chg is not None else day["chg_pct"]
+    del chg  # 방향 성패로 쓰지 않음
     hi, lo, cl = float(day["high"]), float(day["low"]), float(day["close"])
     o = float(day.get("open") or cl)
-    move_to_high = ((hi - o) / o * 100) if o else 0.0
-    eff_up = chg > 0.5 or move_to_high > 0.5 or cl >= o
     opt = _fmt_opt_ref(ref, prev_as_of)
     _, timing = _expiry_timing(ref.expiry, prev_as_of, ref.role)
-    approach = (hi / ref.strike * 100) if ref.strike else 0
-    gap = ref.strike - hi
+    spot = cl or o
+    tier = _price_tier(ref.strike, spot)
+    actual = f"{_fmt_px(o)}→{_fmt_px(cl)} (고 {_fmt_px(hi)} / 저 {_fmt_px(lo)})"
 
     if ref.opt_type == "CALL":
-        expect = "단기 상방 관심 (어제 콜 거래 집중)"
-        actual = f"{_fmt_px(o)}→{_fmt_px(cl)} (고 {_fmt_px(hi)} / 저 {_fmt_px(lo)})"
-        if hi >= ref.strike * 0.995:
+        # 관측만 — 상승 기대 확정 금지
+        observe = f"[관측] {opt} 거래 증가"
+        if hi < ref.strike * 0.97:
+            status, note = (
+                "⬜ 미검증",
+                f"[가격] 고 {_fmt_px(hi)} · {opt} 미도달 "
+                f"(거리 {_strike_dist_pct(ref.strike, hi):.1f}%) → 실패가 아니라 미검증",
+            )
+        elif lo > ref.strike * 1.01:
+            status, note = (
+                "➖ 상회 유지",
+                f"[가격] 저 {_fmt_px(lo)}이 이미 {opt} 위 — "
+                f"오늘 그 가격대 반응은 따로 검증되지 않음",
+            )
+        elif hi >= ref.strike * 0.995:
             if cl >= ref.strike * 0.99:
-                verdict, note = (
-                    "✅ 동조·도달",
-                    f"주가가 {opt}까지 닿았고 종가도 그 근처",
+                status, note = (
+                    "✅ 적중",
+                    f"[가격] 고 {_fmt_px(hi)} · {opt} 도달·종가 유지 → 가격 반응 확인",
                 )
             else:
-                verdict, note = (
-                    "⚠️ 동조·터치",
-                    f"주가가 {opt}에 닿았다가 종가는 살짝 아래",
+                status, note = (
+                    "⚠️ 부분 검증",
+                    f"[가격] 고 {_fmt_px(hi)} · {opt} 터치 후 종가 {_fmt_px(cl)}",
                 )
-        elif approach >= 97 and (eff_up or chg >= -0.5):
-            verdict, note = (
-                "⚠️ 동조·접근",
-                f"주가가 {opt}까지 {_fmt_px(gap)} 모자란 곳(고 {_fmt_px(hi)})까지 올라감",
-            )
-        elif chg <= -1 and move_to_high < 1:
-            verdict, note = (
-                "❌ 어긋남",
-                f"콜에 몰렸는데 주가는 하락 ({chg:+.1f}%)",
-            )
         else:
-            verdict, note = (
-                "➖ 연결 약함",
-                f"콜 몰림 가격과 고가 {_fmt_px(hi)} 사이 거리가 큼",
+            status, note = (
+                "⚠️ 부분 검증",
+                f"[가격] 고 {_fmt_px(hi)} · {opt}에 {_fmt_px(ref.strike - hi)} 근접",
             )
     else:
-        expect = "하락·헤지 관심 (어제 풋 거래 집중)"
-        actual = f"{_fmt_px(o)}→{_fmt_px(cl)} (고 {_fmt_px(hi)} / 저 {_fmt_px(lo)})"
-        if chg <= -1.5:
-            verdict, note = "✅ 동조", f"풋 몰림과 하락 방향이 같음 ({chg:+.1f}%)"
-        elif chg >= 1:
-            verdict, note = "❌ 어긋남", f"풋에 몰렸는데 주가는 상승 ({chg:+.1f}%)"
-        elif lo <= ref.strike * 1.01:
-            verdict, note = "⚠️ 동조·접근", "풋 행사가 근처까지 주가가 내려감"
+        observe = f"[관측] {opt} 거래 증가"
+        if lo <= ref.strike * 1.005:
+            if cl < ref.strike * 0.995:
+                status, note = (
+                    "⚠️ 부분 검증",
+                    f"[가격] 저 {_fmt_px(lo)} · {opt} 구간을 하방으로 통과 "
+                    f"(지지로 단정하지 않음)",
+                )
+            else:
+                status, note = (
+                    "✅ 적중",
+                    f"[가격] 저 {_fmt_px(lo)} · {opt} 근처에서 반응 확인",
+                )
+        elif lo <= ref.strike * 1.03:
+            status, note = (
+                "⚠️ 부분 검증",
+                f"[가격] 저 {_fmt_px(lo)} · {opt}에 근접",
+            )
         else:
-            verdict, note = (
-                "➖ 연결 약함",
-                f"풋 몰림 가격과 저가 {_fmt_px(lo)} 사이 거리가 큼",
+            status, note = (
+                "⬜ 미검증",
+                f"[가격] 저 {_fmt_px(lo)} · {opt} 미도달 → 미검증",
             )
 
     return {
         "kind": "콜" if ref.opt_type == "CALL" else "풋",
         "signal": opt,
         "timing": timing,
-        "expect": expect,
+        "observe": observe,
+        "expect": observe,  # 하위 호환
         "actual": actual,
-        "verdict": verdict,
+        "verdict": status,
         "note": note,
         "strike": f"{ref.strike:g}",
-        "approach": f"{approach:.1f}",
+        "approach": f"{(hi / ref.strike * 100) if ref.strike else 0:.1f}",
+        "tier": str(tier),
+        "tier_label": _tier_label(tier),
+        "status_code": (
+            "hit" if "적중" in status
+            else "partial" if "부분" in status
+            else "unverified" if "미검증" in status
+            else "above" if "상회" in status
+            else "other"
+        ),
     }
 
 
@@ -506,44 +551,189 @@ def _yesterday_signal_refs(
     day: dict,
     anomalies: list | None,
 ) -> list[tuple[OptionRef, str]]:
-    """판정용 — 어제 콜 1건 + (하락·풋 급증일) 풋 1건."""
+    """검증용 — 어제 콜·풋 상위(거리 무관 관측) 최대 4건."""
     if not prev_snap:
         return []
     rows: list[tuple[OptionRef, str]] = []
-    for ref in _top_option_refs(prev_snap, 1, "CALL"):
+    for ref in _top_option_refs(prev_snap, 2, "CALL"):
         rows.append((ref, "콜"))
-    put_surge = any(
-        isinstance(a, dict) and "PUT" in (a.get("message") or "").upper()
-        for a in (anomalies or [])
-    )
-    if day["chg_pct"] <= -2 or put_surge:
-        for ref in _top_option_refs(prev_snap, 1, "PUT"):
-            rows.append((ref, "풋"))
-    return rows
+    for ref in _top_option_refs(prev_snap, 2, "PUT"):
+        rows.append((ref, "풋"))
+    # 중복 strike 제거
+    seen: set[tuple[float, str]] = set()
+    out: list[tuple[OptionRef, str]] = []
+    for ref, kind in rows:
+        key = (round(ref.strike, 2), ref.opt_type)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((ref, kind))
+    return out[:4]
 
 
 def _overall_signal_verdict(judgments: list[dict[str, str]]) -> str:
     if not judgments:
         return "어제 옵션과 비교할 데이터가 없어요"
-    calls = [j for j in judgments if j["kind"] == "콜"]
-    puts = [j for j in judgments if j["kind"] == "풋"]
-    if calls:
-        v = calls[0]["verdict"]
-        if "어긋남" in v or "연결 약함" in v or "무관" in v:
-            if puts and any("동조" in p["verdict"] for p in puts):
-                return "콜 쪽은 약하고, 풋 쪽은 주가와 동조"
-            return "콜 몰림과 주가의 연결이 약함"
-        if "도달" in v:
-            return "콜 몰림 가격까지 주가가 따라감"
-        if "접근" in v or "터치" in v:
-            return "콜 몰림 가격 근처까지 주가가 따라감"
-        if "동조" in v:
-            return "콜 몰림과 주가 방향이 같음"
-    if puts:
-        if any("동조" in p["verdict"] for p in puts):
-            return "풋 몰림과 주가 방향이 같음"
-        return "풋 몰림과 주가의 연결이 약함"
-    return "옵션과 주가의 연결이 애매함"
+    codes = [j.get("status_code") for j in judgments]
+    if any(c == "hit" for c in codes):
+        return "일부 strike에서 가격 반응 확인"
+    if any(c == "partial" for c in codes):
+        return "일부 strike 근접·부분 검증"
+    if all(c == "unverified" for c in codes):
+        return "전일 옵션 관심 가격은 오늘 미도달(미검증)"
+    return "옵션·가격 연결은 제한적"
+
+
+def _prev_focus_strikes(prev_snap: dict | None) -> list[float]:
+    out: list[float] = []
+    for ref in _top_option_refs(prev_snap, 3, "CALL"):
+        out.append(ref.strike)
+    for ref in _top_option_refs(prev_snap, 2, "PUT"):
+        out.append(ref.strike)
+    seen: set[float] = set()
+    uniq: list[float] = []
+    for s in out:
+        rs = round(s, 2)
+        if rs in seen:
+            continue
+        seen.add(rs)
+        uniq.append(s)
+    return uniq
+
+
+def _strikes_from_older_snap(older: dict | None) -> set[float]:
+    """이틀 전 스냅의 콜/풋 관심 행사가."""
+    if not older:
+        return set()
+    return {round(s, 2) for s in _prev_focus_strikes(older)}
+
+
+def _what_changed_lines(
+    *,
+    day: dict,
+    prev_snap: dict | None,
+    older_snap: dict | None,
+    judgments: list[dict[str, str]],
+    dod: dict | None,
+    news: list[dict],
+) -> list[str]:
+    """어제(또는 직전)와 다른 점만. 최소 1줄 — 정크 반복 방지용."""
+    lines: list[str] = []
+    spot = float(day.get("close") or 0)
+    prev_focus = [round(s, 2) for s in _prev_focus_strikes(prev_snap)]
+    older_focus = _strikes_from_older_snap(older_snap)
+
+    # 1) 관심 행사가 이동 (현재가 근처 위주)
+    if prev_focus and older_focus:
+        def _near_enough(s: float) -> bool:
+            return bool(spot) and abs(s - spot) / spot <= 0.08
+
+        appeared = [s for s in prev_focus if s not in older_focus and _near_enough(s)]
+        disappeared = [
+            s for s in older_focus if s not in set(prev_focus) and _near_enough(s)
+        ]
+        if appeared:
+            lines.append(
+                "관심 행사가 이동: "
+                + ", ".join(_fmt_px(s) for s in appeared[:3])
+                + " 신규(현재가±8%)"
+            )
+        if disappeared and len(lines) < 3:
+            lines.append(
+                "어제 관심에서 빠짐: "
+                + ", ".join(_fmt_px(s) for s in list(disappeared)[:2])
+            )
+    elif prev_focus and not older_focus:
+        near = [s for s in prev_focus if spot and abs(s - spot) / spot <= 0.05]
+        far = [s for s in prev_focus if s not in near]
+        if near:
+            lines.append(
+                "어제 관심(현재가±5%): " + ", ".join(_fmt_px(s) for s in near[:3])
+            )
+        elif far:
+            lines.append(
+                "어제 관심은 원거리: " + ", ".join(_fmt_px(s) for s in far[:2])
+                + " — 오늘 1차 검증 대상 아님"
+            )
+
+    # 2) 검증 결과 구성 (적중/부분/미검증 비율)
+    if judgments:
+        n = len(judgments)
+        hits = sum(1 for j in judgments if j.get("status_code") == "hit")
+        parts = sum(1 for j in judgments if j.get("status_code") == "partial")
+        unv = sum(1 for j in judgments if j.get("status_code") == "unverified")
+        if hits:
+            hit_strikes = [
+                _fmt_px(float(j["strike"]))
+                for j in judgments
+                if j.get("status_code") == "hit" and j.get("strike")
+            ][:2]
+            lines.append(
+                f"오늘 새로 확인: {', '.join(hit_strikes)} 가격 반응(적중 {hits}/{n})"
+            )
+        elif parts:
+            lines.append(f"부분 검증 {parts}/{n} · 완전 적중은 없음")
+        elif unv == n:
+            near_unv = [
+                j
+                for j in judgments
+                if j.get("tier") == "1" and j.get("status_code") == "unverified"
+            ]
+            if near_unv:
+                lines.append(
+                    "가까운 관심가조차 미도달 — 오늘 옵션→주가 연결 증거 없음"
+                )
+            else:
+                lines.append(
+                    f"검증 {n}건 모두 미도달(미검증) — 원거리 관심만 있었음"
+                )
+
+    # 3) 옵션 활동성
+    d = dod or {}
+    vm = d.get("volume_mult")
+    if vm is not None and vm >= 1.5:
+        lines.append(f"옵션 총거래 어제 대비 {vm:.1f}배 (활동성↑ · 방향 아님)")
+    elif vm is not None and vm <= 0.7:
+        lines.append(f"옵션 총거래 어제 대비 {vm:.1f}배 (활동성↓)")
+
+    cpr_p, cpr_t = d.get("cpr_prev"), d.get("cpr_today")
+    if cpr_p and cpr_t and abs(cpr_t - cpr_p) / max(cpr_p, 0.01) >= 0.25:
+        if cpr_t > cpr_p:
+            lines.append("콜/풋 거래 비중: 콜 쪽으로 이동 (매수·매도 미확정)")
+        else:
+            lines.append("콜/풋 거래 비중: 풋 쪽으로 이동 (매수·매도 미확정)")
+
+    # 4) 뉴스
+    news_ctx = _news_day_context(news, day)
+    if news_ctx:
+        lines.append(f"뉴스: {news_ctx}")
+
+    # 5) 주가 움직임 규모
+    chg = abs(float(day.get("chg_pct") or 0))
+    hi = float(day.get("high") or 0)
+    lo = float(day.get("low") or 0)
+    o = float(day.get("open") or spot or 1)
+    range_pct = (hi - lo) / o * 100 if o else 0
+    if chg >= 3 or range_pct >= 4:
+        lines.append(
+            f"주가 변동 큼: {_fmt_chg_label(day)} · 장중 폭 {range_pct:.1f}%"
+        )
+    elif chg < 0.3 and range_pct < 1.5 and not lines:
+        lines.append(
+            f"주가·옵션 모두 전일과 유사 — 오늘은 "
+            f"{_fmt_px(spot)} 유지 여부만 짧게 기록"
+        )
+
+    # 최소 1줄 보장
+    if not lines:
+        if judgments:
+            j0 = judgments[0]
+            lines.append(
+                f"대표 기록: {j0.get('observe', '')} → {j0.get('verdict', '')}"
+            )
+        else:
+            lines.append(f"전일 옵션 스냅 없음 — 오늘 주가 {_fmt_chg_label(day)}만 기록")
+    return lines[:4]
 
 
 def _fmt_chg_label(day: dict) -> str:
@@ -560,6 +750,18 @@ def _fmt_chg_label(day: dict) -> str:
     return f"{_fmt_px(o)}→{_fmt_px(c)} ({chg:+.1f}%)"
 
 
+def _verification_table(judgments: list[dict[str, str]]) -> str:
+    """옵션 ↔ 주가 검증 표 (방향 단정 없음)."""
+    if not judgments:
+        return ""
+    L = ["📋 어제 옵션 → 오늘 주가 (검증)"]
+    L.append("전일 옵션 관측 | 오늘 가격 | 결과")
+    for j in judgments:
+        L.append(f"· {j['signal']} | {j['actual'].split('(')[0].strip()} | {j['verdict']}")
+        L.append(f"  {j['note']}")
+    return "\n".join(L)
+
+
 def _plain_story(
     day: dict,
     news: list[dict],
@@ -570,85 +772,107 @@ def _plain_story(
     *,
     episodes: int,
     fb: dict | None,
+    older_snap: dict | None = None,
+    dod: dict | None = None,
 ) -> str:
-    """본문 = 쉬운 말 스토리 (옵션 몰림 → 주가 동조 여부)."""
+    """본문: 어제와 다른 점 → 검증 → 내일 (방향 베팅 확정 금지)."""
     move = _fmt_chg_label(day)
+    spot = float(day.get("close") or 0)
     L: list[str] = ["💡 한눈에"]
 
+    # 1) 어제와 다른 점 (강제 — 정크 반복 방지)
+    L.append("📌 어제와 다른 점")
+    for line in _what_changed_lines(
+        day=day,
+        prev_snap=prev_snap,
+        older_snap=older_snap,
+        judgments=judgments,
+        dod=dod,
+        news=news,
+    ):
+        L.append(f"· {line}")
+
+    # 2) 검증 요약 (짧고 구체)
     if not judgments:
-        L.append(f"· 어제 옵션 기록이 없어, 오늘 주가({move})만 적어둡니다.")
+        L.append(f"· 어제 옵션 기록 없음 — 오늘 주가({move})만 기록.")
     else:
-        j = judgments[0]
-        strike = _fmt_px(float(j["strike"]))
-        if "동조" in j["verdict"]:
-            L.append(f"· 어제 {j['signal']}에 거래가 많이 몰렸습니다.")
-            L.append(
-                f"· 오늘 주가도 {move}로 {strike} 근처까지 따라갔습니다. "
-                f"이 콜 배팅 때문인지는 확정할 수 없지만, "
-                f"같은 방향을 본다는 점에서 ‘동조’로 읽습니다."
-            )
-            if "접근" in j["verdict"] or "터치" in j["verdict"]:
-                L.append(
-                    f"· 참고: {strike}을(를) 완전히 넘진 않았습니다. "
-                    f"그래도 ‘행사했냐’가 아니라 "
-                    f"‘그 가격대를 향해 움직였냐’를 보는 판정입니다. "
-                    f"({j['note']})"
-                )
-            else:
-                L.append(f"· ({j['note']})")
-        elif "어긋남" in j["verdict"] or "무관" in j["verdict"]:
-            L.append(
-                f"· 어제 {j['signal']}에 몰림이 있었는데, "
-                f"오늘 주가({move})는 그 기대와 방향이 달랐습니다."
-            )
-            L.append(f"· {j['note']}")
-        else:
-            L.append(
-                f"· 어제 {j['signal']}에 몰림이 있었습니다. "
-                f"오늘 주가({move})와는 연결이 약해 보입니다."
-            )
-            L.append(f"· {j['note']}")
+        summary = _overall_signal_verdict(judgments)
+        L.append(f"· 검증 요약: {summary}. 주가 {move}.")
 
-        for j2 in judgments[1:]:
-            L.append(f"· 덧붙임({j2['kind']}): {j2['note']}")
+        def _rank(jj):
+            try:
+                s = float(jj["strike"])
+            except (TypeError, ValueError):
+                s = 0
+            code = jj.get("status_code") or ""
+            # 가까운 strike + 실제 반응 우선
+            near = 0 if _price_tier(s, spot) == 1 else 1
+            pri = {"hit": 0, "partial": 1, "unverified": 2}.get(code, 3)
+            return (near, pri, abs(s - spot))
 
-    news_ctx = _news_day_context(news, day)
-    if news_ctx:
-        L.append(f"· 뉴스 맥락: {news_ctx}")
+        j = sorted(judgments, key=_rank)[0]
+        L.append(f"· 대표: {j['observe']} → {j['verdict']}")
+        L.append(f"  {j['note']}")
+        if j.get("status_code") == "unverified" and j.get("tier") == "1":
+            L.append("· ※ 가까운 관심가도 미도달 = 실패가 아니라 미검증.")
 
     if not df.empty:
         L.append(
-            f"· 장중 요약: {_fmt_px(day['open'])}에서 시작 → "
+            f"· 장중: {_fmt_px(day['open'])} → "
             f"고 {_fmt_px(day['high'])} / 저 {_fmt_px(day['low'])} → "
-            f"종가 {_fmt_px(day['close'])}"
+            f"종 {_fmt_px(day['close'])}"
         )
 
     if fb and fb.get("available"):
         g = (fb.get("accuracy") or {}).get("grade") or {}
         L.append(
-            f"· 어제 우리가 적어둔 예측 채점: "
-            f"{g.get('grade', '?')} ({g.get('score', '?')}점). 자세한 숫자는 아래."
+            f"· 어제 예측 채점: {g.get('grade', '?')} ({g.get('score', '?')}점) · 상세 ↓"
         )
 
-    if judgments and any("동조" in j["verdict"] for j in judgments):
-        strike = judgments[0].get("strike")
-        if strike:
-            L.append(
-                f"· 내일 볼 것: ${_strike_plain(strike)} 위를 지키는지, "
-                f"아니면 다시 내려오는지. (목표가 아님 · 검증용)"
-            )
-        else:
-            L.append(f"· 내일 볼 것: {_fmt_px(day['close'])} 근처를 지키는지.")
+    # 내일: 현재가 ±3%만 1차 — 옵션 근거 있는 것만
+    near_watch: list[str] = []
+    for j in judgments:
+        try:
+            s = float(j["strike"])
+        except (TypeError, ValueError):
+            continue
+        if _price_tier(s, spot) == 1:
+            near_watch.append(f"{_fmt_px(s)} ({j['kind']})")
+    anchors: list[str] = []
+    if day.get("close") is not None:
+        anchors.append(_fmt_px(float(day["close"])))
+    if day.get("high") is not None and abs(float(day["high"]) - spot) / max(spot, 1) <= 0.03:
+        anchors.append(f"고 {_fmt_px(float(day['high']))}")
+    if day.get("low") is not None and abs(float(day["low"]) - spot) / max(spot, 1) <= 0.03:
+        anchors.append(f"저 {_fmt_px(float(day['low']))}")
+    if near_watch:
+        L.append(
+            "· 내일 1차(현재가±3% · 옵션 근거): "
+            + ", ".join(dict.fromkeys(near_watch + anchors))
+        )
     else:
         L.append(
-            f"· 내일 볼 것: {_fmt_px(day['close'])} 근처에서 방향이 생기는지."
+            f"· 내일 1차: {_fmt_px(spot)} 유지·이탈만 "
+            f"(가까운 옵션 관심 없음 · 차트 관찰)"
+        )
+    far = [
+        f"{_fmt_px(float(j['strike']))}"
+        for j in judgments
+        if j.get("tier") == "3"
+        and float(j["strike"]) > spot * 1.03
+        and j.get("status_code") == "unverified"
+    ]
+    if far:
+        L.append(
+            f"· 원거리 참고만: {', '.join(dict.fromkeys(far))} — 1차 시나리오 아님"
         )
 
-    L.append(
-        "· ※ 옵션 거래가 많다고 곧바로 ‘주가를 밀어 올렸다’고 "
-        "단정하지는 않습니다. 동조(같은 방향)만 기록합니다."
-    )
+    table = _verification_table(judgments)
+    if table:
+        L.append("")
+        L.append(table)
     return "\n".join(L)
+
 
 
 def _strike_plain(s: str) -> str:
@@ -733,17 +957,26 @@ def _compact_lesson_line(fb: dict | None) -> str | None:
     return None
 
 
-def _learning_today(fb: dict | None, ctx: dict | None, ticker: str) -> str:
-    """📚 오늘의 학습 — 본문용 압축."""
+def _learning_today(
+    fb: dict | None,
+    ctx: dict | None,
+    ticker: str,
+    judgments: list[dict[str, str]] | None = None,
+) -> str:
+    """📚 오늘의 학습 — 실제 기록만. 빈 후보 문구는 넣지 않음."""
     import learning as learn
+    import pattern_store as ps
 
     L = ["📚 오늘의 학습"]
+    has_meat = False
+
     if fb and fb.get("available"):
         g = (fb.get("accuracy") or {}).get("grade") or {}
         grade = g.get("grade", "?")
         score = g.get("score", "?")
         pdate = fb.get("prediction_date") or "?"
         L.append(f"· 어제({pdate}) 예측 → 오늘 채점 {grade} ({score}점)")
+        has_meat = True
 
         acc = fb.get("accuracy") or {}
         bits: list[str] = []
@@ -759,22 +992,67 @@ def _learning_today(fb: dict | None, ctx: dict | None, ticker: str) -> str:
             bits.append("방향✓")
         elif acc.get("direction") == "FAIL":
             bits.append("방향✗")
+        elif acc.get("direction") in ("SKIP", "N/A", None) and "direction" in acc:
+            if acc.get("direction") in ("SKIP", "N/A"):
+                bits.append("방향(특수국면·채점제외)")
         if bits:
             L.append(f"  {' · '.join(bits)}")
 
         lesson = _compact_lesson_line(fb)
         if lesson:
             L.append(f"· 교훈: {lesson}")
-    else:
-        note = (fb or {}).get("note") or "직전 예측 채점 데이터 없음"
-        L.append(f"· {note}")
+            has_meat = True
+
+    # 오늘 검증에서 바로 뽑은 실기록 (빈 '학습 중' 대체)
+    if judgments:
+        hits = [j for j in judgments if j.get("status_code") == "hit"]
+        parts = [j for j in judgments if j.get("status_code") == "partial"]
+        unv_near = [
+            j
+            for j in judgments
+            if j.get("status_code") == "unverified" and j.get("tier") == "1"
+        ]
+        bits2: list[str] = []
+        if hits:
+            bits2.append(
+                "적중 "
+                + ", ".join(_fmt_px(float(j["strike"])) for j in hits[:2] if j.get("strike"))
+            )
+        if parts:
+            bits2.append(f"부분 {len(parts)}건")
+        if unv_near:
+            bits2.append(
+                "근거리 미검증 "
+                + ", ".join(
+                    _fmt_px(float(j["strike"])) for j in unv_near[:2] if j.get("strike")
+                )
+            )
+        if bits2:
+            L.append(f"· 오늘 관측 기록: {' · '.join(bits2)}")
+            has_meat = True
+
+    st = ps.pattern_state(ps.PATTERN_BREAKOUT_EXPAND)
+    n_obs = st.get("n") or 0
+    if n_obs > 0:
+        rate = st.get("hit_rate")
+        rate_s = f"{rate * 100:.0f}%" if rate is not None else "-"
+        L.append(
+            f"· 패턴 관측 {n_obs}회 · 적중 {st.get('hits', 0)} · 실패 {st.get('fails', 0)} "
+            f"· 미검증 {st.get('unverified', 0)} · 평가승률 {rate_s}"
+            f"{' · 가중 소폭반영' if st.get('status') == 'active' else ' · 후보(미반영)'}"
+        )
+        has_meat = True
 
     stats = (ctx or {}).get("최근7일") or learn.cumulative_stats(ticker, limit=7)
     if stats.get("available"):
         n = stats.get("n") or 0
         band = stats.get("band_accuracy_pct")
         if band is not None:
-            L.append(f"· 누적 {n}회 · 밴드 {band}% (상세는 ↓ 참고자료)")
+            L.append(f"· 누적 {n}회 · 밴드 {band}%")
+            has_meat = True
+
+    if not has_meat:
+        L.append("· 오늘 새로 쌓을 학습 기록이 없습니다 (빈 후보 문구 생략).")
     return "\n".join(L)
 
 
@@ -844,6 +1122,11 @@ def _build_reference_appendix(
         L.append("")
 
     L.append(report_flow.cumulative_learning_block(ticker, ctx))
+    L.append("")
+
+    import short_squeeze as sq_mod
+
+    L.append(sq_mod.format_squeeze_section(data.get("short_squeeze")))
     L.append("")
 
     L.append(report_flow.limits_block(base))
@@ -1030,20 +1313,37 @@ def _option_change_plain(
     snap: dict | None,
     report_date: str,
 ) -> str:
-    """📊 옵션 변화 — 쉬운 말 + 만기."""
+    """📊 옵션 변화 — 거래량≠방향 베팅."""
     L = ["📊 옵션 쪽 변화 (쉽게 말하면)"]
+    L.append(
+        "· 규칙: Call/Put Volume 증가 ≠ 매수 증가 ≠ 상승·하락 베팅. "
+        "매수·매도 합이므로 방향은 확정하지 않습니다."
+    )
     d = dod or {}
     if not d.get("available"):
         L.append("· 어제와 비교할 옵션 숫자가 없어요.")
         return "\n".join(L)
 
-    today_calls = _top_option_refs(snap, 2)
+    oi_tag = "[OI: 전일]" if "전일" in str(
+        (snap or {}).get("metrics", {}).get("oi_source")
+        or (snap or {}).get("oi_source")
+        or ""
+    ) else "[OI]"
+    # snap may store oi_source on metrics
+    src = ""
+    if snap:
+        src = str((snap.get("metrics") or {}).get("oi_source") or snap.get("oi_source") or "")
+    if "전일" in src or "미갱신" in src:
+        L.append(f"· 시간축: [Volume: 당일] vs {oi_tag} — 오늘 거래가 신규 포지션인지는 확정 불가.")
+
+    today_calls = _top_option_refs(snap, 3)
     if today_calls:
-        focus = _fmt_opt_refs(today_calls, report_date, 2)
+        focus = _fmt_opt_refs(today_calls, report_date, 3)
+        L.append(f"· 오늘 콜 거래 TOP: {focus} [Volume: 당일]")
         L.append(
-            f"· 오늘도 사람들이 {focus} 쪽에 거래를 많이 걸었습니다. "
-            f"주가가 그 가격대에 가까우면, 그 콜의 가격(프리미엄)도 "
-            f"보통 같이 오르는 편입니다."
+            "· 주가가 행사가에 가까워지면 콜 프리미엄이 "
+            "내재가치·델타 변화의 영향을 받을 수 있지만, "
+            "IV·시간가치 변화도 함께 작용합니다."
         )
         note = _horizon_note(today_calls, report_date)
         if note:
@@ -1051,31 +1351,38 @@ def _option_change_plain(
 
     vm = d.get("volume_mult")
     if vm is not None and vm >= 1.5:
-        L.append(
-            f"· 옵션 거래량이 어제보다 {vm:.1f}배로 늘었습니다 — "
-            + (
-                "급락일에 옵션도 같이 분주해진 날"
-                if day["chg_pct"] <= -3
-                else "옵션 시장이 평소보다 바쁜 날"
-            )
-        )
+        L.append(f"· 옵션 총거래량이 어제보다 {vm:.1f}배 — 활동성 증가 (방향 아님).")
     elif vm is not None:
-        L.append("· 옵션 거래량 자체는 어제와 비슷한 수준입니다.")
+        L.append("· 옵션 총거래량은 어제와 비슷한 수준.")
 
     cpr_p, cpr_t = d.get("cpr_prev"), d.get("cpr_today")
     if cpr_p and cpr_t:
         if cpr_t > cpr_p * 1.1:
             L.append(
-                "· 콜(상승 쪽) 거래 비중이 늘었습니다. "
-                "‘오른다’는 쪽에 사람이 더 붙었다는 흔적이지, "
-                "방향 확정은 아닙니다."
+                "· 콜 거래가 늘었습니다. 다만 거래량만으로 콜 매수인지 매도인지는 "
+                "확인할 수 없어 방향성은 확정하지 않습니다."
             )
         elif cpr_t < cpr_p * 0.9:
             L.append(
-                "· 풋(하락·헤지 쪽) 거래 비중이 늘었습니다. "
-                "‘떨어진다/지킨다’ 쪽 관심 증가 흔적이지, "
-                "방향 확정은 아닙니다."
+                "· 풋 거래가 늘었습니다. 다만 거래량만으로 풋 매수인지 매도인지는 "
+                "확인할 수 없어 방향성은 확정하지 않습니다."
             )
+
+    # V/OI 상위 — 활동성 지표
+    top_voi = ((snap or {}).get("metrics") or {}).get("top_voi") or []
+    if top_voi:
+        r0 = top_voi[0]
+        try:
+            L.append(
+                f"· V/OI 극단 예: {r0.get('expiry')} {r0.get('type')} "
+                f"${float(r0['strike']):g} V/OI {r0.get('voi')} "
+                f"(vol {int(r0.get('volume') or 0):,} / OI {int(r0.get('oi') or 0):,}). "
+                f"V/OI는 방향 신호가 아니라 "
+                f"‘기존 OI 대비 오늘 거래가 컸다’는 활동성 지표입니다. "
+                f"다음날 OI 증감으로 신규·교체 후보를 사후 확인합니다."
+            )
+        except (TypeError, ValueError, KeyError):
+            pass
 
     put_surge = [
         an for an in (anomalies or [])
@@ -1083,19 +1390,18 @@ def _option_change_plain(
     ]
     if put_surge:
         msg = (put_surge[0].get("message") or "")[:72]
-        L.append(f"· 풋 OI가 크게 늘어난 계약: {msg}")
+        L.append(f"· 풋 OI 급변 관측: {msg}")
 
     oi_p, oi_t = d.get("oi_prev"), d.get("oi_today")
     if oi_p and oi_t and oi_p > 0:
         pct = (oi_t - oi_p) / oi_p * 100
         if abs(pct) >= 10:
             L.append(
-                f"· 전체 미결제약정(OI)이 "
-                f"{'늘었' if pct > 0 else '줄었'}습니다 ({pct:+.0f}%) — "
-                f"포지션을 다시 짜는 흐름."
+                f"· 전체 OI {'증가' if pct > 0 else '감소'} ({pct:+.0f}%) — "
+                f"포지션 재배치 흔적 (방향 미확정)."
             )
 
-    if len(L) == 1:
+    if len(L) <= 2:
         L.append("· 오늘 특별히 눈에 띄는 옵션 변화는 적습니다.")
     return "\n".join(L)
 
@@ -1136,29 +1442,34 @@ def _watch_verify_block(
     day: dict,
     judgments: list[dict[str, str]],
 ) -> str:
-    """📌 내일 검증 — 관심가 나열 없이 판정 확인 포인트만."""
+    """📌 내일 검증 — 현재가 ±3%만 1차."""
     L = ["📌 내일 검증"]
-    spot = day["close"]
-    chg = day["chg_pct"]
-
-    if chg <= -3:
-        L.append("· 장 초반 30분: 급락 후 반등 vs 추가 하락")
-        L.append(f"· {_fmt_px(spot)} 유지 vs 이탈 — 오늘 저점이 지지인지")
-    elif chg >= 3:
-        L.append("· 급등 후 되돌림 vs 추세 지속")
-        L.append(f"· {_fmt_px(spot)} 위 유지 vs 되돌림")
-    else:
-        L.append(f"· {_fmt_px(spot)} 근처 박스 vs 방향 선택")
-
+    spot = float(day["close"])
+    primary: list[str] = [f"{_fmt_px(spot)} 유지 vs 이탈"]
+    secondary: list[str] = []
     for j in judgments:
-        if j["kind"] == "콜" and ("어긋남" in j["verdict"] or "연결 약함" in j["verdict"] or "무관" in j["verdict"]):
-            L.append("· 어제 콜 몰림이 계속 무시되는지, 뒤늦게 그 가격대로 따라가는지")
-            break
-        if j["kind"] == "콜" and "동조" in j["verdict"]:
-            L.append("· 어제 콜 몰림 가격 쪽으로의 동조가 이어지는지, 되돌리는지")
-            break
-
-    L.append("· 목표가 아님 — 어제·오늘 말이 맞았는지만 확인")
+        try:
+            s = float(j["strike"])
+        except (TypeError, ValueError):
+            continue
+        tier = _price_tier(s, spot)
+        bit = f"{_fmt_px(s)} ({j['kind']} · {j.get('tier_label', '')})"
+        if tier == 1:
+            primary.append(bit)
+        elif tier == 2:
+            secondary.append(bit)
+    prim = list(dict.fromkeys(primary))[:4]
+    L.append("· 1차: " + " · ".join(prim))
+    sec = list(dict.fromkeys(secondary))[:3]
+    if sec:
+        L.append("· 2차(참고): " + " · ".join(sec))
+    far = [j for j in judgments if j.get("tier") == "3"]
+    if far:
+        L.append(
+            "· 원거리(1차 금지): "
+            + ", ".join(j["signal"] for j in far[:2])
+        )
+    L.append("· 목표가 아님 — 가격이 그 구간에 닿았는지·어떻게 반응했는지만 확인")
     return "\n".join(L)
 
 
@@ -1268,10 +1579,17 @@ def build_full_report(
     anomalies = data.get("anomalies") or []
     vol_anom = data.get("volume_anomaly")
 
+    prev_trade = _prev_trading_snapshot_date(ticker, date)
     prev_date = (dt.date.fromisoformat(date) - dt.timedelta(days=1)).isoformat()
     prev_snap = snapshot_store.load_snapshot(ticker, prev_date) or _load_snapshot(
-        ticker, _prev_trading_snapshot_date(ticker, date)
+        ticker, prev_trade
     )
+    older_date = _prev_trading_snapshot_date(
+        ticker, prev_snap.get("date") if prev_snap else prev_trade
+    )
+    older_snap = _load_snapshot(ticker, older_date) if older_date else None
+    if older_snap and prev_snap and older_snap.get("date") == prev_snap.get("date"):
+        older_snap = None
     prev_as_of = prev_snap.get("date", prev_date) if prev_snap else prev_date
 
     news = eventinfo.get("news") or []
@@ -1305,9 +1623,11 @@ def build_full_report(
     L.append(
         _plain_story(
             day, news, judgments, prev_as_of, prev_snap, df,
-            episodes=episodes, fb=fb,
+            episodes=episodes, fb=fb, older_snap=older_snap, dod=dod,
         )
     )
+    L.append("")
+    L.append(_learning_today(fb, ctx, ticker, judgments=judgments))
 
     L.append(
         _build_reference_appendix(

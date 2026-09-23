@@ -605,45 +605,53 @@ def cumulative_learning_block(
     ticker: str,
     learning_context: dict | None = None,
 ) -> str:
-    """📚 누적 학습 — 간소화."""
+    """📚 누적 학습 — 패턴 표 + 표본 주의."""
     import learning as learn
     import pattern_store as ps
 
     L = ["📚 누적 학습"]
     ctx = learning_context or {}
     stats = ctx.get("최근30일") or learn.cumulative_stats(ticker, limit=30)
-    if not stats.get("available"):
-        stats = ctx.get("최근7일") or learn.cumulative_stats(ticker, limit=7)
+    s7 = ctx.get("최근7일") or learn.cumulative_stats(ticker, limit=7)
+    s60 = ctx.get("최근60일") or learn.cumulative_stats(ticker, limit=60)
 
-    if stats.get("available"):
-        n = stats.get("n") or 0
-        L.append(f"최근 {n}회")
-        band = stats.get("band_accuracy_pct")
-        sup = stats.get("support_accuracy_pct")
-        direc = stats.get("direction_accuracy_pct")
-        parts = []
-        if band is not None:
-            parts.append(f"밴드 {band}%")
-        if sup is not None:
-            parts.append(f"주요 가격 반응 {sup}%")
-        if direc is not None:
-            parts.append(f"방향 {direc}%")
-        if parts:
-            L.append(" · ".join(parts))
-    else:
+    def _win(label: str, s: dict) -> None:
+        if not s.get("available"):
+            return
+        n = s.get("n") or 0
+        dh, dn = s.get("direction_hits"), s.get("direction_n")
+        line = f"· {label} n={n}"
+        if s.get("band_accuracy_pct") is not None:
+            line += f" · 밴드 {s['band_accuracy_pct']}%"
+        if dh is not None and dn:
+            line += f" · 방향 {dh}/{dn}"
+            if n < 15:
+                line += " (표본 작음)"
+        L.append(line)
+
+    _win("7회", s7)
+    _win("30회", stats)
+    _win("60회", s60)
+    if not any(x.get("available") for x in (stats, s7, s60)):
         L.append("· 아직 누적 기록 부족")
 
     st = ps.pattern_state(ps.PATTERN_BREAKOUT_EXPAND)
     n_obs = st.get("n", 0)
-    if n_obs <= 0:
-        L.append("· 학습 중인 패턴 없음")
-    elif st["status"] == "active":
-        L.append("· 학습 완료: 관심가+거래량 돌파 시 확장 가능성 — 소폭 반영 중")
-    else:
+    hits = st.get("hits", 0)
+    fails = st.get("fails", 0)
+    unverified = st.get("unverified", 0)
+    rate = st.get("hit_rate")
+    if n_obs > 0:
+        rate_s = f"{rate * 100:.1f}%" if rate is not None else "-"
+        L.append(f"· [패턴] {st.get('label') or '관심가+거래량 돌파 후 확장'}")
         L.append(
-            f"· 학습 중: 관심 가격을 거래량과 함께 돌파하면 추가 상승하는지 관찰 ({n_obs}회)"
+            f"  관측 {n_obs}회 · 적중 {hits} · 실패 {fails} · 미검증 {unverified} · "
+            f"승률(평가분모) {rate_s} · 가중치: "
+            f"{'소폭 반영' if st.get('status') == 'active' else '미반영(후보)'}"
         )
-        L.append("  → 아직 사례 부족 · 예측 규칙 미반영")
+        if st["status"] != "active":
+            L.append("  → 최소표본·반복성 확인 전 · 예측 규칙 미반영")
+    # n_obs==0 이면 '학습 중' 빈 문구 생략
     return "\n".join(L)
 
 
@@ -651,7 +659,10 @@ def limits_block(base: dict | None = None) -> str:
     """⚠️ 데이터 한계."""
     L = [
         "⚠️ 데이터 한계",
-        "· OI/거래량만으로 매수·매도 방향 확정 불가",
+        "· Call/Put Volume 증가 ≠ 매수 증가 ≠ 상승·하락 베팅 확정",
+        "· OI가 있다고 지지·저항이 아님 · 가격 반응 확인 전엔 '관심 가격'",
+        "· V/OI는 활동성 지표 · 방향 신호 아님",
+        "· 미도달 구간은 실패가 아니라 미검증",
         "· 표본 부족 패턴은 학습 후보로만 기록",
         "· 단일 날짜 결과로 예측 규칙 변경하지 않음",
     ]

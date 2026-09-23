@@ -93,10 +93,60 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
             learning.save_prediction_record(feedback)
             import pattern_store
 
+            # 관측 0이면 기존 스냅으로 1회 백필 후, 오늘 건 기록
+            if pattern_store.pattern_state(pattern_store.PATTERN_BREAKOUT_EXPAND).get("n", 0) <= 0:
+                n_bf = pattern_store.backfill_from_snapshots()
+                if n_bf:
+                    print(f"[learning] 패턴 관측 백필 {n_bf}건")
             pattern_store.observe_from_grade(ticker, prev_any, feedback)
         learn_ctx = learning.learning_context_for_llm(ticker, feedback)
         data["prediction_feedback"] = feedback
         data["learning_context"] = learn_ctx
+
+        # 옵션 이벤트 → t+1 주가 상관 실험
+        import option_events as oe
+
+        oe_result = oe.build_report_mode(
+            ticker=ticker,
+            date=data["date"],
+            prev_snap=prev_any,
+            today_snap=data,
+            today_ohlc=today_ohlc,
+            dod=dod,
+            vol_anom=vol_anom,
+            save=save,
+        )
+        data["option_event_report"] = {
+            "mode": oe_result["mode"],
+            "score_info": oe_result["score_info"],
+            "n_prev": len(oe_result["prev_events"]),
+            "n_today": len(oe_result["today_events"]),
+            "n_resolved": len(oe_result["resolved"]),
+            "correlation": oe_result.get("correlation"),
+        }
+
+        # 숏스퀴즈 체크 (옵션과 분리 · 급등만으로 확정 금지)
+        import short_squeeze as sq_mod
+
+        px_chg = None
+        if data.get("spot") and data.get("previous_close"):
+            try:
+                px_chg = round(
+                    (float(data["spot"]) - float(data["previous_close"]))
+                    / float(data["previous_close"])
+                    * 100,
+                    2,
+                )
+            except (TypeError, ValueError, ZeroDivisionError):
+                px_chg = None
+        vm = (vol_anom or {}).get("mult") if vol_anom else None
+        data["short_squeeze"] = sq_mod.collect_short_metrics(
+            ticker,
+            date=data.get("date"),
+            price_change_pct=px_chg,
+            volume_mult=float(vm) if vm is not None else None,
+            save=save,
+        )
 
         # 이벤트/뉴스(어닝·헤드라인·가격·옵션 반응·다음장 시나리오) 수집
         eventinfo = events_mod.collect_events(
@@ -109,38 +159,40 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         )
         data["events"] = eventinfo
 
-        if config.REPORT_STYLE == "stock":
-            import stock_report
-
-            narrative = stock_report.build_full_report(
-                ticker, data["date"], snap=data
-            )
-            narrative_source = "stock"
+        # 본문: quiet | event 스토리 (옵션↔주가 상관). 구형 장문은 event일 때만 부록.
+        mode = oe_result["mode"]
+        if mode == "skip":
+            narrative = ""
+            narrative_source = "quiet_skip"
+        elif mode == "quiet":
+            narrative = oe_result["body"]
+            narrative_source = "quiet"
         else:
-            narrative, narrative_source = insights_mod.build_narrative(
-                data,
-                base,
-                anomalies,
-                vol_anom,
-                prev_any,
-                trend,
-                eventinfo,
-                dod,
-                feedback=feedback,
-                learning_context=learn_ctx,
-            )
+            # 이벤트 데이: 상관 스토리 + (선택) 구형 상세는 짧게 유지하지 않고 본문만
+            narrative = oe_result["body"]
+            narrative_source = "option_event"
+            # 참고: 뉴스  Imp박이면 한 줄 추가
+            earn = (eventinfo or {}).get("earnings") or {}
+            if earn.get("phase") in ("임박", "직후") and earn.get("message"):
+                narrative = f"🚨 {earn['message']}\n\n" + narrative
+
         data["narrative"] = narrative
         data["narrative_source"] = narrative_source
+        data["report_mode"] = mode
 
         path = None
         if save:
             path = snapshot_store.save_snapshot(data)
 
-        report = report_builder.build_report(
-            data, base, anomalies, vol_anom, narrative, narrative_source, eventinfo
-        )
-        if path:
-            report += f"\n[저장됨: {path}]"
+        if mode == "skip":
+            report = (
+                f"[{ticker}] quiet skip "
+                f"(score {oe_result['score_info'].get('score')})"
+            )
+        else:
+            report = narrative
+            if path:
+                report += f"\n[저장됨: {path}]"
         return report, True, path
     except Exception as e:  # noqa: BLE001
         return (

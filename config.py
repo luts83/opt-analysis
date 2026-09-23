@@ -78,6 +78,11 @@ _DEFAULTS = {
     },
     "report": {
         "style": "stock",
+        "quiet_mode": "one_line",
+        "event_min_score": 40,
+        "focus_pct": 0.05,
+        "focus_pct_2": 0.08,
+        "outcome_horizon_days": 1,
     },
 }
 
@@ -167,3 +172,8 @@ PRICE_MOVE_ALERT_PCT: float = float(_EV.get("price_move_alert_pct", 8.0))
 # ---- 리포트 스타일 (stock | experiment) ----
 _REPORT = _S.get("report") or {}
 REPORT_STYLE: str = str(_REPORT.get("style", "stock")).lower()
+REPORT_QUIET_MODE: str = str(_REPORT.get("quiet_mode", "one_line")).lower()
+REPORT_EVENT_MIN_SCORE: int = int(_REPORT.get("event_min_score", 40))
+REPORT_FOCUS_PCT: float = float(_REPORT.get("focus_pct", 0.05))
+REPORT_FOCUS_PCT_2: float = float(_REPORT.get("focus_pct_2", 0.08))
+REPORT_OUTCOME_HORIZON_DAYS: int = int(_REPORT.get("outcome_horizon_days", 1))

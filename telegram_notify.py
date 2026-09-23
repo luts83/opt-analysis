@@ -113,9 +113,19 @@ def send_text(text: str, chat_id: str | None = None) -> int:
 
 
 def send_reports(title: str, reports: list[str], chat_id: str | None = None) -> int:
+    """빈 본문·quiet skip 마커는 발송하지 않음."""
+    usable = [
+        r
+        for r in reports
+        if r and r.strip() and "quiet skip" not in r[:80]
+    ]
+    if not usable:
+        # 전원 quiet skip이면 짧은 요약만
+        send_text(title + "\n(오늘 전원 quiet — 장문 생략)", chat_id=chat_id)
+        return 1
     n = 0
     n += send_text(title, chat_id=chat_id)
-    for report in reports:
+    for report in usable:
         n += send_text(report, chat_id=chat_id)
     return n
 

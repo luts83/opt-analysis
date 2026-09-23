@@ -51,19 +51,21 @@ def format_data_summary(
     L.append(f"   OI {src} | 해설:{ai} | 심리 {base.get('sentiment')} "
              f"(C/P {base.get('call_put_volume_ratio')})")
 
-    L.append("   · V/OI 상위:")
+    L.append("   · V/OI 상위 (활동성 지표 · 방향 신호 아님):")
     if base.get("top_voi"):
         for i, r in enumerate(base["top_voi"][:5], 1):
+            oi = r.get("oi") or 0
             L.append(
                 f"     {i}. {r['expiry']} {r['type']} ${r['strike']:g} "
-                f"V/OI {r['voi']} ({r['class']}) vol {r['volume']:,}"
+                f"V/OI {r['voi']} ({r['class']}) vol {r['volume']:,} "
+                f"/ OI {oi:,} — 기존 OI 대비 당일 거래 비중"
             )
     else:
         L.append("     (없음)")
 
-    L.append("   · 거래량 상위 콜:")
+    L.append("   · 거래량 상위 콜 [Volume: 당일]:")
     L.extend(_volume_lines((base.get("top_call_volume") or [])[:5]))
-    L.append("   · 거래량 상위 풋:")
+    L.append("   · 거래량 상위 풋 [Volume: 당일]:")
     L.extend(_volume_lines((base.get("top_put_volume") or [])[:5]))
 
     if volume_anomaly and volume_anomaly.get("is_anomaly"):
@@ -77,17 +79,31 @@ def format_data_summary(
             L.append(f"     - {a['message']}")
 
     ctx = data.get("learning_context") or {}
-    s7 = ctx.get("최근7일") or {}
-    if s7.get("available"):
+
+    def _acc_line(label: str, s: dict) -> None:
+        if not s.get("available"):
+            return
+        n = s.get("n") or 0
+        dh = s.get("direction_hits")
+        dn = s.get("direction_n")
         bits = []
-        if s7.get("band_accuracy_pct") is not None:
-            bits.append(f"밴드 {s7['band_accuracy_pct']}%")
-        if s7.get("support_accuracy_pct") is not None:
-            bits.append(f"지지 {s7['support_accuracy_pct']}%")
-        if s7.get("direction_accuracy_pct") is not None:
-            bits.append(f"방향 {s7['direction_accuracy_pct']}%")
+        if s.get("band_accuracy_pct") is not None:
+            bits.append(f"밴드 {s['band_accuracy_pct']}%")
+        if s.get("support_accuracy_pct") is not None:
+            bits.append(f"지지 {s['support_accuracy_pct']}%")
+        if s.get("direction_accuracy_pct") is not None and dh is not None and dn:
+            bits.append(f"방향 {dh}/{dn} ({s['direction_accuracy_pct']}%)")
+        elif s.get("direction_accuracy_pct") is not None:
+            bits.append(f"방향 {s['direction_accuracy_pct']}%")
         if bits:
-            L.append(f"   · 최근7일 정확도: {', '.join(bits)} (n={s7.get('n')})")
+            caveat = ""
+            if n < 15:
+                caveat = " · 표본 작음 → 장기 정확도로 해석 금지"
+            L.append(f"   · {label}: {', '.join(bits)} (n={n}){caveat}")
+
+    _acc_line("최근7회", ctx.get("최근7일") or {})
+    _acc_line("최근30회", ctx.get("최근30일") or {})
+    _acc_line("최근60회", ctx.get("최근60일") or {})
     return L
 
 

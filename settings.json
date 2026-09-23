@@ -38,6 +38,11 @@
     "price_move_alert_pct": 8.0
   },
   "report": {
-    "style": "stock"
+    "style": "stock",
+    "quiet_mode": "one_line",
+    "event_min_score": 40,
+    "focus_pct": 0.05,
+    "focus_pct_2": 0.08,
+    "outcome_horizon_days": 1
   }
 }

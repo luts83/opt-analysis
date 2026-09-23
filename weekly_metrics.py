@@ -106,15 +106,27 @@ def resistance_result(resistance, actual_high) -> dict | None:
     if actual_high >= resistance:
         label = f"저항선 돌파! (실제 고가 ${actual_high:g} ≥ 예상 ${resistance:g})"
         score = 100
+        status = "HIT"
     elif actual_high >= resistance * 0.98:
         label = f"저항선 근접 (고가가 예상의 {actual_high/resistance:.0%} 도달)"
         score = 70
+        status = "NEAR"
     else:
         gap = (resistance - actual_high) / resistance * 100
-        label = f"저항선 미달 ({gap:.1f}% 못 미침)"
-        # 미달은 실패로 취급 — 근접 점수 상한 30
-        score = min(_proximity_score(resistance, actual_high), 30)
-    return {"predicted": resistance, "actual_high": actual_high, "score": score, "label": label}
+        label = (
+            f"저항 구간 미검증 (고가 ${actual_high:g}, 예상 ${resistance:g} "
+            f"미도달 · {gap:.1f}% 거리) — 실패가 아님"
+        )
+        # 미도달 = 평가 보류 (점수에서 제외)
+        score = None
+        status = "UNVERIFIED"
+    return {
+        "predicted": resistance,
+        "actual_high": actual_high,
+        "score": score,
+        "label": label,
+        "status": status,
+    }
 
 
 def support_result(support, actual_low) -> dict | None:
@@ -123,18 +135,35 @@ def support_result(support, actual_low) -> dict | None:
     if actual_low <= support:
         label = f"지지선 이탈 (실제 저가 ${actual_low:g} ≤ 예상 ${support:g})"
         score = 0  # 이탈 = 실패
+        status = "FAIL"
     elif actual_low <= support * 1.02:
         label = f"지지선 근접 (저가가 예상 지지 부근에서 방어)"
         score = 85
+        status = "NEAR"
+    elif actual_low > support * 1.05:
+        gap = (actual_low - support) / support * 100
+        label = (
+            f"지지 구간 미검증 (저가 ${actual_low:g}가 예상 ${support:g}에 "
+            f"{gap:.1f}% 여유 · 미도달) — 실패가 아님"
+        )
+        score = None
+        status = "UNVERIFIED"
     else:
         gap = (actual_low - support) / support * 100
         label = f"지지선 여유 ({gap:.1f}% 위에서 마감)"
         score = max(70, _proximity_score(support, actual_low))
-    return {"predicted": support, "actual_low": actual_low, "score": score, "label": label}
+        status = "HOLD"
+    return {
+        "predicted": support,
+        "actual_low": actual_low,
+        "score": score,
+        "label": label,
+        "status": status,
+    }
 
 
 def direction_result(sentiment, weekly_return) -> dict:
-    # 특수 라벨은 방향 단정으로 보지 않음
+    # 특수 라벨은 방향 단정이 아님 → 채점에서 제외 (움직임만으로 PASS 금지)
     special = (
         "반등 시도 국면", "양방향 극단 베팅", "차익실현/헤지 국면",
         "차익실현/헤지 혼재", "변동성 확대 가능성",
@@ -143,10 +172,18 @@ def direction_result(sentiment, weekly_return) -> dict:
     bullish_set = ("강세", "콜 거래 우세")
     bearish_set = ("약세", "풋 거래 우세")
     if sentiment in special:
-        match = abs(weekly_return) >= 2  # 큰 움직임이 있으면 '국면 인식' 성공 쪽
-        score = 60 if match else 40
-        verdict = "특수국면 인식" if match else "특수국면(움직임 작음)"
-    elif sentiment in bullish_set:
+        return {
+            "predicted_sentiment": sentiment,
+            "weekly_return_pct": weekly_return,
+            "match": None,
+            "score": None,
+            "status": "UNVERIFIED",
+            "label": (
+                f"특수국면 채점제외 ({sentiment}, "
+                f"일일 {weekly_return:+.1f}%) — |수익률|만으로 PASS하지 않음"
+            ),
+        }
+    if sentiment in bullish_set:
         match = weekly_return > 0
         score = 100 if match else 0
         verdict = "방향 일치" if match else "방향 불일치"
@@ -161,9 +198,9 @@ def direction_result(sentiment, weekly_return) -> dict:
     return {
         "predicted_sentiment": sentiment,
         "weekly_return_pct": weekly_return,
-        "match": match if sentiment in (*bullish_set, *bearish_set, "중립", "콜·풋 균형") else True,
+        "match": match,
         "score": score,
-        "label": f"{verdict} ({sentiment} 예상, 주간 {weekly_return:+.1f}%)",
+        "label": f"{verdict} ({sentiment} 예상, 일일 {weekly_return:+.1f}%)",
     }
 
 
@@ -199,25 +236,31 @@ def _grade_letter(score: float) -> str:
 def _item_passed(key: str, res: dict | None) -> bool | None:
     if res is None:
         return None
+    if res.get("status") == "UNVERIFIED" or res.get("score") is None:
+        return None  # 평가 보류 — pass/fail 아님
     if key == "band":
         return bool(res.get("contained"))
     if key == "direction":
         return bool(res.get("match"))
     if key == "support":
+        if res.get("status") == "FAIL":
+            return False
         al, ps = res.get("actual_low"), res.get("predicted")
         if al is None or ps is None:
             return None
         return al > ps  # 이탈하지 않으면 PASS
     if key == "resistance":
+        if res.get("status") == "UNVERIFIED":
+            return None
         ah, pr = res.get("actual_high"), res.get("predicted")
         if ah is None or pr is None:
             return None
-        return ah >= pr  # 도달/돌파만 PASS (미달은 FAIL)
+        return ah >= pr * 0.98  # 도달·근접만 PASS
     return None
 
 
 def composite_grade(band, direction, resistance, support) -> dict:
-    """가중 점수 + 실패 개수 상한(전부 실패면 F≤45)."""
+    """가중 점수. 미검증(score=None)은 가중치에서 제외."""
     parts = {
         "band": band,
         "direction": direction,
@@ -228,12 +271,15 @@ def composite_grade(band, direction, resistance, support) -> dict:
     acc = 0.0
     passes = 0
     fails = 0
+    skipped = 0
     band_passed = False
     for key, res in parts.items():
         if res is None:
             continue
+        if res.get("status") == "UNVERIFIED" or res.get("score") is None:
+            skipped += 1
+            continue
         w = _WEIGHTS[key]
-        # 밴드 실패 시 부분점수 상한
         sc = res["score"]
         if key == "band" and not res.get("contained"):
             sc = min(sc, 35)
@@ -248,16 +294,21 @@ def composite_grade(band, direction, resistance, support) -> dict:
             fails += 1
     score = round(acc / total_w) if total_w else 0
 
-    # 루브릭: 전부 실패 ≤45(F), 3실패+밴드성공 ≈75(C+), 3실패 그 외 60대(C-)
     if fails >= 4 or (passes == 0 and fails >= 3):
         score = min(score, 45)
     elif fails == 3:
         if band_passed:
-            score = 75  # C+ 부근
+            score = 75
         else:
             score = min(max(score, 60), 68)
 
-    return {"score": score, "grade": _grade_letter(score), "passes": passes, "fails": fails}
+    return {
+        "score": score,
+        "grade": _grade_letter(score),
+        "passes": passes,
+        "fails": fails,
+        "skipped_unverified": skipped,
+    }
 
 
 def build_weekly(ticker: str, prediction: dict, ohlc: dict) -> dict:

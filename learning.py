@@ -291,18 +291,57 @@ def grade_yesterday(
             "밴드 성공" if band.get("contained") else f"밴드 실패 ({band.get('label')})"
         )
     if support:
-        failed_sup = (
+        st = support.get("status")
+        if st == "UNVERIFIED":
+            accuracy_summary.append("지지 미검증")
+        elif st == "FAIL" or (
             support.get("actual_low") is not None
             and support.get("predicted") is not None
             and support["actual_low"] <= support["predicted"]
-        )
-        accuracy_summary.append("지지 실패" if failed_sup else "지지 참고 OK")
+        ):
+            accuracy_summary.append("지지 실패")
+        else:
+            accuracy_summary.append("지지 참고 OK")
     if resistance:
-        accuracy_summary.append(resistance.get("label", "저항")[:40])
+        accuracy_summary.append(resistance.get("label", "저항")[:80])
     if direction:
-        accuracy_summary.append(
-            "방향 일치" if direction.get("match") else "방향 불일치"
-        )
+        if direction.get("score") is None:
+            accuracy_summary.append("방향 채점제외(특수국면)")
+        else:
+            accuracy_summary.append(
+                "방향 일치" if direction.get("match") else "방향 불일치"
+            )
+
+    def _support_acc() -> str:
+        if not support:
+            return "N/A"
+        if support.get("status") == "UNVERIFIED":
+            return "UNVERIFIED"
+        if (
+            support.get("actual_low") is not None
+            and support.get("predicted") is not None
+            and support["actual_low"] <= support["predicted"]
+        ):
+            return "FAIL"
+        return "PASS"
+
+    def _resist_acc() -> str:
+        if not resistance:
+            return "N/A"
+        st = resistance.get("status")
+        if st == "UNVERIFIED":
+            return "UNVERIFIED"
+        if st in ("HIT", "NEAR") or (
+            resistance.get("actual_high") is not None
+            and resistance.get("predicted") is not None
+            and resistance["actual_high"] >= resistance["predicted"] * 0.98
+        ):
+            return "HIT" if (
+                resistance.get("actual_high") is not None
+                and resistance.get("predicted") is not None
+                and resistance["actual_high"] >= resistance["predicted"]
+            ) else "NEAR"
+        return "FAIL"
 
     return {
         "available": True,
@@ -331,23 +370,13 @@ def grade_yesterday(
                 if band and band.get("contained")
                 else ("FAIL" if band else "N/A")
             ),
-            "support": (
-                "FAIL"
-                if support
-                and support.get("actual_low") is not None
-                and support.get("predicted") is not None
-                and support["actual_low"] <= support["predicted"]
-                else ("PASS" if support else "N/A")
+            "support": _support_acc(),
+            "resistance": _resist_acc(),
+            "direction": (
+                "SKIP"
+                if not direction or direction.get("score") is None
+                else ("PASS" if direction.get("match") else "FAIL")
             ),
-            "resistance": (
-                "HIT"
-                if resistance
-                and resistance.get("actual_high") is not None
-                and resistance.get("predicted") is not None
-                and resistance["actual_high"] >= resistance["predicted"]
-                else ("FAIL" if resistance else "N/A")
-            ),
-            "direction": "PASS" if direction and direction.get("match") else "FAIL",
             "summary": " / ".join(accuracy_summary),
             "grade": grade,
         },
@@ -398,6 +427,12 @@ def format_feedback_section(fb: dict | None, *, include_lesson: bool = True) -> 
             if ps is not None and al is not None
             else "❌ 지지선 실패"
         )
+    elif acc.get("support") == "UNVERIFIED":
+        L.append(
+            f"⬜ 지지 미검증 (${support.get('predicted'):g}) — 가격이 구간까지 안 옴"
+            if support.get("predicted") is not None
+            else "⬜ 지지 미검증"
+        )
     elif acc.get("support") == "PASS":
         L.append("✅ 지지선 참고 OK")
 
@@ -409,11 +444,25 @@ def format_feedback_section(fb: dict | None, *, include_lesson: bool = True) -> 
             L.append(f"${pr:g} 저항 후보 → ✅ 돌파 (고가 ${ah:g})")
         else:
             L.append(f"${pr:g} 저항 후보 → ✅ 도달" if pr is not None else "✅ 저항 후보 도달")
-    elif acc.get("resistance") == "FAIL" or resistance.get("predicted") is not None:
+    elif acc.get("resistance") == "NEAR":
         L.append(
-            f"${resistance['predicted']:g} 저항 후보 → ❌ 미달"
+            f"${resistance['predicted']:g} 저항 후보 → ⚠️ 근접"
             if resistance.get("predicted") is not None
-            else "❌ 저항 후보 미달"
+            else "⚠️ 저항 근접"
+        )
+    elif acc.get("resistance") == "UNVERIFIED":
+        pr = resistance.get("predicted")
+        ah = act.get("high")
+        L.append(
+            f"${pr:g} 저항 후보 → ⬜ 미검증 (고가 ${ah:g} · 미도달, 실패 아님)"
+            if pr is not None and ah is not None
+            else "⬜ 저항 미검증"
+        )
+    elif acc.get("resistance") == "FAIL":
+        L.append(
+            f"${resistance['predicted']:g} 저항 후보 → ❌ 실패"
+            if resistance.get("predicted") is not None
+            else "❌ 저항 실패"
         )
 
     direction = results.get("direction") or {}
@@ -525,12 +574,28 @@ def cumulative_stats(ticker: str, limit: int = 30) -> dict:
     direction_ok = sum(
         1 for h in hist if (h.get("accuracy") or {}).get("direction") == "PASS"
     )
+    resistance_ok = sum(
+        1
+        for h in hist
+        if (h.get("accuracy") or {}).get("resistance") in ("HIT", "NEAR")
+    )
     band_n = sum(1 for h in hist if (h.get("accuracy") or {}).get("band") in ("PASS", "FAIL"))
     support_n = sum(
         1 for h in hist if (h.get("accuracy") or {}).get("support") in ("PASS", "FAIL")
     )
+    # UNVERIFIED는 분모에서 제외 (평가 보류)
     direction_n = sum(
         1 for h in hist if (h.get("accuracy") or {}).get("direction") in ("PASS", "FAIL")
+    )
+    resistance_n = sum(
+        1
+        for h in hist
+        if (h.get("accuracy") or {}).get("resistance") in ("HIT", "NEAR", "FAIL")
+    )
+    resistance_skip = sum(
+        1
+        for h in hist
+        if (h.get("accuracy") or {}).get("resistance") == "UNVERIFIED"
     )
 
     from collections import Counter
@@ -557,6 +622,10 @@ def cumulative_stats(ticker: str, limit: int = 30) -> dict:
         "band_accuracy_pct": _pct(band_ok, band_n),
         "support_accuracy_pct": _pct(support_ok, support_n),
         "direction_accuracy_pct": _pct(direction_ok, direction_n),
+        "resistance_accuracy_pct": _pct(resistance_ok, resistance_n),
+        "direction_hits": direction_ok,
+        "direction_n": direction_n,
+        "resistance_unverified_n": resistance_skip,
         "top_missed_signals": top_missed,
         "recent_lessons": lessons[:5],
     }
@@ -566,9 +635,11 @@ def learning_context_for_llm(ticker: str, today_feedback: dict | None = None) ->
     """LLM 에 넣을 최근 학습 컨텍스트."""
     stats = cumulative_stats(ticker, limit=30)
     last7 = cumulative_stats(ticker, limit=7)
+    last60 = cumulative_stats(ticker, limit=60)
     ctx: dict = {
         "최근30일": stats,
         "최근7일": last7,
+        "최근60일": last60,
     }
     if today_feedback and today_feedback.get("available"):
         ctx["오늘채점요약"] = {

@@ -65,44 +65,69 @@ def save_patterns(data: dict, path: Path | None = None) -> Path:
     return p
 
 
-def _capped_hit_rate(obs: list[dict]) -> tuple[float | None, int, int]:
-    """최근 표본 가중 상한을 적용한 적중률. (rate, hits, n)"""
-    n = len(obs)
+def _obs_result(o: dict) -> str:
+    """관측 결과: hit | fail | unverified. 구형 hit bool 호환."""
+    r = o.get("result")
+    if r in ("hit", "fail", "unverified"):
+        return r
+    if "hit" in o:
+        return "hit" if o.get("hit") else "fail"
+    return "unverified"
+
+
+def _evaluated(obs: list[dict]) -> list[dict]:
+    """미검증 제외 — 학습 승률 분모에서 빼기."""
+    return [o for o in obs if _obs_result(o) in ("hit", "fail")]
+
+
+def _capped_hit_rate(obs: list[dict]) -> tuple[float | None, int, int, int]:
+    """최근 표본 가중 상한 적중률. (rate, hits, fails, n_obs).
+
+    미검증은 승률 분모에서 제외한다 (학습 오염 방지).
+    """
+    n_obs = len(obs)
+    ev = _evaluated(obs)
+    n = len(ev)
     if n == 0:
-        return None, 0, 0
+        return None, 0, 0, n_obs
     n_recent = max(1, int(round(n * RECENT_FRACTION)))
     n_recent = min(n_recent, n)
-    # 최신이 뒤에 쌓이도록 저장한다고 가정. 없으면 리스트 순서를 그대로.
-    recent = obs[-n_recent:]
-    older = obs[:-n_recent] if n > n_recent else []
+    recent = ev[-n_recent:]
+    older = ev[:-n_recent] if n > n_recent else []
     w_recent_total = min(RECENT_WEIGHT_CAP, n_recent / n)
     w_older_total = 1.0 - w_recent_total if older else 0.0
     if not older:
         w_recent_total = 1.0
 
-    def _hit(xs: list[dict]) -> float:
+    def _rate(xs: list[dict]) -> float:
         if not xs:
             return 0.0
-        return sum(1.0 for o in xs if o.get("hit")) / len(xs)
+        return sum(1.0 for o in xs if _obs_result(o) == "hit") / len(xs)
 
-    rate = _hit(recent) * w_recent_total + _hit(older) * w_older_total
-    hits = sum(1 for o in obs if o.get("hit"))
-    return round(rate, 4), hits, n
+    rate = _rate(recent) * w_recent_total + _rate(older) * w_older_total
+    hits = sum(1 for o in ev if _obs_result(o) == "hit")
+    fails = sum(1 for o in ev if _obs_result(o) == "fail")
+    return round(rate, 4), hits, fails, n_obs
 
 
 def pattern_state(pattern_id: str, path: Path | None = None) -> dict:
     data = load_patterns(path)
     rec = (data.get("patterns") or {}).get(pattern_id) or {}
     obs = rec.get("observations") or []
-    rate, hits, n = _capped_hit_rate(obs)
-    enough = n >= MIN_SAMPLES
+    rate, hits, fails, n_obs = _capped_hit_rate(obs)
+    n_eval = hits + fails
+    unverified = sum(1 for o in obs if _obs_result(o) == "unverified")
+    enough = n_eval >= MIN_SAMPLES
     repeatable = enough and rate is not None and rate >= MIN_HIT_RATE
     status = "active" if repeatable else "candidate"
     return {
         "id": pattern_id,
         "label": rec.get("label") or _LABELS.get(pattern_id, pattern_id),
-        "n": n,
+        "n": n_obs,
+        "n_evaluated": n_eval,
         "hits": hits,
+        "fails": fails,
+        "unverified": unverified,
         "hit_rate": rate,
         "min_samples": MIN_SAMPLES,
         "status": status,
@@ -122,11 +147,17 @@ def record_observation(
     ticker: str,
     date: str,
     prediction_date: str | None,
-    hit: bool,
+    hit: bool | None = None,
+    result: str | None = None,
     setup: dict | None = None,
     path: Path | None = None,
 ) -> dict:
-    """관찰 1건 추가. 같은 티커+날짜는 덮어씀. 규칙은 바꾸지 않음."""
+    """관찰 1건 추가. result=hit|fail|unverified. 미검증은 승률 분모 제외."""
+    if result not in ("hit", "fail", "unverified"):
+        if hit is None:
+            result = "unverified"
+        else:
+            result = "hit" if hit else "fail"
     data = load_patterns(path)
     pats = data.setdefault("patterns", {})
     rec = pats.setdefault(
@@ -144,7 +175,9 @@ def record_observation(
             "ticker": str(ticker).upper(),
             "date": date,
             "prediction_date": prediction_date,
-            "hit": bool(hit),
+            "result": result,
+            # 하위 호환
+            "hit": result == "hit",
             "setup": setup or {},
         }
     )
@@ -163,14 +196,25 @@ def detect_breakout_expand_setup(prev_snap: dict | None) -> dict | None:
     exp = levels.get("expansion_up") or {}
     break_lv = exp.get("break_level")
     if break_lv is None:
-        nr = (levels.get("near_resistance") or levels.get("near_resistance") or [])
+        nr = levels.get("near_resistance") or []
         if nr:
             break_lv = nr[0].get("strike")
+    # expansion/near_res 없어도 현재가±5% 콜 집중이면 셋업으로 본다
+    spot = prev_snap.get("spot")
+    calls = m.get("top_call_volume") or []
+    if break_lv is None and spot is not None:
+        for r in calls[:5]:
+            try:
+                s = float(r["strike"])
+                if abs(s - float(spot)) / float(spot) <= 0.05:
+                    break_lv = s
+                    break
+            except (TypeError, ValueError, KeyError):
+                continue
     if break_lv is None:
         return None
     vol_anom = prev_snap.get("volume_anomaly") or {}
     spike = bool(vol_anom.get("is_anomaly"))
-    calls = m.get("top_call_volume") or []
     near_vol = 0
     for r in calls[:5]:
         try:
@@ -178,7 +222,8 @@ def detect_breakout_expand_setup(prev_snap: dict | None) -> dict | None:
                 near_vol = max(near_vol, int(r.get("volume") or 0))
         except (TypeError, ValueError, KeyError):
             continue
-    if not spike and near_vol < 1000 and not exp:
+    # 거래 집중·확장맵·스파이크 중 하나만 있어도 관측 후보
+    if not spike and near_vol < 500 and not exp:
         return None
     band = None
     tw = (m.get("expiry_metrics") or {}).get("this_week") or {}
@@ -212,40 +257,46 @@ def observe_from_grade(
     band = (fb.get("predicted") or {}).get("band") or setup.get("band")
     upper = band[1] if isinstance(band, (list, tuple)) and len(band) > 1 else None
     try:
-        hit = (
-            high is not None
-            and float(high) >= float(setup["break_level"]) * 0.998
-            and upper is not None
-            and float(high) > float(upper)
-        )
+        bl = float(setup["break_level"])
+        hi = float(high) if high is not None else None
     except (TypeError, ValueError):
         return None
+    if hi is None:
+        result = "unverified"
+    elif hi < bl * 0.97:
+        # 관심가 미도달 → 실패가 아니라 미검증
+        result = "unverified"
+    elif upper is not None and hi > float(upper):
+        result = "hit"
+    elif hi >= bl * 0.998:
+        # 돌파는 됐지만 상단 확장 실패
+        result = "fail"
+    else:
+        result = "unverified"
     return record_observation(
         PATTERN_BREAKOUT_EXPAND,
         ticker=ticker,
         date=str(fb.get("date")),
         prediction_date=fb.get("prediction_date"),
-        hit=bool(hit),
+        result=result,
         setup={
             "break_level": setup.get("break_level"),
             "volume_spike": setup.get("volume_spike"),
             "near_call_volume": setup.get("near_call_volume"),
             "band_upper": upper,
             "actual_high": high,
+            "result": result,
         },
         path=path,
     )
 
 
 def format_candidates_block(path: Path | None = None) -> str:
-    """리포트용. 후보=표시만, 활성=확률 조정 안내."""
+    """리포트용. 후보=표시만, 활성=확률 조정 안내. 관측 0이면 빈 문자열."""
     st = pattern_state(PATTERN_BREAKOUT_EXPAND, path)
-    L = ["🧪 학습 후보 (예측 규칙을 바로 바꾸지 않음)"]
     if st["n"] <= 0:
-        L.append(
-            "- 아직 관찰이 없어요. 단일 사례는 기록만 하고 가중치에 넣지 않습니다."
-        )
-        return "\n".join(L)
+        return ""  # 빈 '아직 관찰 없어요' 정크 생략
+    L = ["🧪 학습 후보 (예측 규칙을 바로 바꾸지 않음)"]
     tag = "활성(확률 소폭 가산)" if st["status"] == "active" else "학습 후보"
     rate = st.get("hit_rate")
     rate_s = f"{rate*100:.0f}%" if rate is not None else "-"
@@ -253,8 +304,9 @@ def format_candidates_block(path: Path | None = None) -> str:
         f"- [{tag}] {st['label']}"
     )
     L.append(
-        f"  표본 {st['n']}/{st['min_samples']} · 적중 {st['hits']} "
-        f"(최근 가중 상한 {int(RECENT_WEIGHT_CAP*100)}% 적용 적중률 {rate_s})"
+        f"  관측 {st['n']} · 평가 {st.get('n_evaluated', st['n'])}/{st['min_samples']} "
+        f"· 적중 {st['hits']} · 실패 {st.get('fails', 0)} · 미검증 {st.get('unverified', 0)} "
+        f"(가중 적중률 {rate_s})"
     )
     if st["status"] != "active":
         L.append(
@@ -267,8 +319,59 @@ def format_candidates_block(path: Path | None = None) -> str:
         )
     last = (st.get("observations") or [])[-1]
     if last:
+        res = _obs_result(last)
+        res_ko = {"hit": "적중", "fail": "실패", "unverified": "미검증"}.get(res, res)
         L.append(
             f"  최근 관찰: {last.get('ticker')} {last.get('prediction_date')}→{last.get('date')} "
-            f"({'적중' if last.get('hit') else '미적중'})"
+            f"({res_ko})"
         )
     return "\n".join(L)
+
+
+def backfill_from_snapshots(
+    tickers: list[str] | None = None,
+    *,
+    limit_per_ticker: int = 40,
+    path: Path | None = None,
+) -> int:
+    """기존 스냅샷에서 패턴 관측을 한 번 채운다. 이미 있으면 스킵.
+
+    Returns: 새로 기록한 관측 수.
+    """
+    import snapshot_store
+
+    st = pattern_state(PATTERN_BREAKOUT_EXPAND, path)
+    if st.get("n", 0) > 0:
+        return 0
+    tickers = tickers or ["IREN", "TSLA", "SPCX"]
+    added = 0
+    seen: set[tuple[str, str]] = set()
+    for ticker in tickers:
+        try:
+            dates = snapshot_store.list_dates(ticker) or []
+        except Exception:
+            # list_dates 없으면 디렉터리 스캔
+            from pathlib import Path as P
+            import config
+
+            base = P(config.SNAPSHOTS_DIR)
+            base = base if base.is_absolute() else P(__file__).resolve().parent / base
+            d = base / ticker
+            dates = sorted(p.stem for p in d.glob("*.json")) if d.exists() else []
+        dates = dates[-limit_per_ticker:]
+        for i in range(1, len(dates)):
+            prev = snapshot_store.load_snapshot(ticker, dates[i - 1])
+            today = snapshot_store.load_snapshot(ticker, dates[i])
+            if not prev or not today:
+                continue
+            fb = today.get("prediction_feedback")
+            if not fb or not fb.get("available"):
+                continue
+            key = (ticker, str(fb.get("date") or dates[i]))
+            if key in seen:
+                continue
+            seen.add(key)
+            out = observe_from_grade(ticker, prev, fb, path=path)
+            if out:
+                added += 1
+    return added

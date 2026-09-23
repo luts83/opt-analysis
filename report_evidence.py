@@ -567,7 +567,7 @@ def enrich_levels(levels: dict | None, spot: float | None) -> dict:
     for it in levels.get("strong_support") or []:
         s = float(it["strike"])
         oi = it.get("oi")
-        meaning = f"{_fmt_px(s)}에 풋 포지션이 많이 쌓여 있음 (지지 후보, 단정 아님)"
+        meaning = f"{_fmt_px(s)}에 풋 OI가 있어 관심 가격으로 기록 (지지 단정 아님)"
         if oi:
             meaning += f" (OI {oi:,}개)"
         if s > spot * 1.005:
