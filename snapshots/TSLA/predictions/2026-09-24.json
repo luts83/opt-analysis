@@ -1,0 +1,40 @@
+{
+  "date": "2026-09-24",
+  "prediction_date": "2026-09-23",
+  "ticker": "TSLA",
+  "predicted": {
+    "support": 375.0,
+    "resistance": 380.0,
+    "band": [
+      367.86,
+      391.34
+    ],
+    "band_pct": 3.09,
+    "sentiment": "콜 거래 우세",
+    "spot": 379.6,
+    "expiry": "2026-09-25"
+  },
+  "actual": {
+    "open": 379.93,
+    "high": 386.7,
+    "low": 375.65,
+    "close": 380.12,
+    "return_pct": 0.05
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "HIT",
+    "direction": "PASS",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 돌파! (실제 고가 $386.7 ≥ 예상 $380) / 방향 일치",
+    "grade": {
+      "score": 97,
+      "grade": "A",
+      "passes": 4,
+      "fails": 0,
+      "skipped_unverified": 0
+    }
+  },
+  "missed_signals": [],
+  "lesson": null
+}

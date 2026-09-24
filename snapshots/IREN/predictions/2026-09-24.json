@@ -1,0 +1,46 @@
+{
+  "date": "2026-09-24",
+  "prediction_date": "2026-09-23",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 47.0,
+    "resistance": 50.0,
+    "band": [
+      45.48,
+      51.42
+    ],
+    "band_pct": 6.13,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 48.45,
+    "expiry": "2026-09-25"
+  },
+  "actual": {
+    "open": 48.14,
+    "high": 49.37,
+    "low": 45.64,
+    "close": 47.05,
+    "return_pct": -2.26
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "NEAR",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 근접 (고가가 예상의 99% 도달) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 68,
+      "grade": "C-",
+      "passes": 2,
+      "fails": 1,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-09-25 PUT $47.5 V/OI 25.636 (극단) → 결과: 급락(-2.3%)",
+    "2026-10-02 PUT $47 V/OI 24.741 (극단) → 결과: 급락(-2.3%)",
+    "2026-10-02 PUT $48 V/OI 11.543 (극단) → 결과: 급락(-2.3%)",
+    "2026-10-02 PUT $28 V/OI 10.043 (극단) → 결과: 급락(-2.3%)",
+    "2026-09-25 CALL $48.5 V/OI 14.187 (극단) → 결과: 상승 아닌 급락(-2.3%) · 콜 매도/헤지 물량 가능"
+  ],
+  "lesson": "콜 V/OI 극단≠강세 — 급락 시 콜 매도 물량 가능성부터 검토 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}

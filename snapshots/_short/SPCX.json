@@ -1,0 +1,14 @@
+{
+  "ticker": "SPCX",
+  "history": [
+    {
+      "date": "2026-09-24",
+      "short_pct_float": 2.76,
+      "short_ratio_days": 1.55,
+      "shares_short": 173619060,
+      "si_change_pct": -16.44,
+      "borrow_fee_pct": null,
+      "price_change_pct": -4.83
+    }
+  ]
+}
