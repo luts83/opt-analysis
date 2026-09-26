@@ -15,26 +15,32 @@
     "expiry": "2026-09-25"
   },
   "actual": {
-    "open": 377.35,
-    "high": 383.33,
-    "low": 375.7,
-    "close": 377.94,
-    "return_pct": 0.16
+    "open": 384.62,
+    "high": 386.83,
+    "low": 367.67,
+    "close": 372.11,
+    "return_pct": -3.25
   },
   "accuracy": {
-    "band": "PASS",
-    "support": "PASS",
-    "resistance": "NEAR",
-    "direction": "PASS",
-    "summary": "밴드 성공 / 지지 참고 OK / 저항선 근접 (고가가 예상의 100% 도달) / 방향 일치",
+    "band": "FAIL",
+    "support": "FAIL",
+    "resistance": "HIT",
+    "direction": "FAIL",
+    "summary": "밴드 실패 (부분 이탈 (실제/예상 변동폭 90%)) / 지지 실패 / 저항선 돌파! (실제 고가 $386.83 ≥ 예상 $385) / 방향 불일치",
     "grade": {
-      "score": 92,
-      "grade": "A-",
-      "passes": 4,
-      "fails": 0,
+      "score": 60,
+      "grade": "D",
+      "passes": 1,
+      "fails": 3,
       "skipped_unverified": 0
     }
   },
-  "missed_signals": [],
-  "lesson": null
+  "missed_signals": [
+    "2026-09-25 PUT $380 V/OI 326.351 (극단) → 결과: 급락(-3.2%)",
+    "2026-09-25 PUT $385 V/OI 152.314 (극단) → 결과: 급락(-3.2%)",
+    "2026-09-25 PUT $377.5 V/OI 151.656 (극단) → 결과: 급락(-3.2%)",
+    "2026-09-28 PUT $380 V/OI 79.596 (극단) → 결과: 급락(-3.2%)",
+    "2026-09-25 PUT $375 V/OI 54.335 (극단) → 결과: 급락(-3.2%)"
+  ],
+  "lesson": "거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급 / 학습 후보: 관심가 돌파+거래 급증 시 밴드 상단 확장 가능성 (단일 사례로 예측 규칙을 바꾸지 않음) / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
 }
