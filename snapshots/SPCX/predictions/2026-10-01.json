@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-01",
+  "prediction_date": "2026-09-30",
+  "ticker": "SPCX",
+  "predicted": {
+    "support": 147.0,
+    "resistance": 150.0,
+    "band": [
+      143.7,
+      154.54
+    ],
+    "band_pct": 3.63,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 149.12,
+    "expiry": "2026-10-02"
+  },
+  "actual": {
+    "open": 148.63,
+    "high": 152.58,
+    "low": 147.75,
+    "close": 150.86,
+    "return_pct": 1.5
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "HIT",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 돌파! (실제 고가 $152.58 ≥ 예상 $150) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 96,
+      "grade": "A",
+      "passes": 3,
+      "fails": 0,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-10-16 만기 $162.5 CALL OI 대량 유입 (676 → 10,778, +1494.4%) → 결과: +1.5%",
+    "2026-10-02 CALL $148 V/OI 5.017 (극단) → 결과: +1.5%"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급"
+}
