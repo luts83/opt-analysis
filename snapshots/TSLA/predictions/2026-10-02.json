@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-02",
+  "prediction_date": "2026-10-01",
+  "ticker": "TSLA",
+  "predicted": {
+    "support": 350.0,
+    "resistance": 355.0,
+    "band": [
+      345.26,
+      366.56
+    ],
+    "band_pct": 2.99,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 355.91,
+    "expiry": "2026-10-02"
+  },
+  "actual": {
+    "open": 356.81,
+    "high": 359.79,
+    "low": 353.8,
+    "close": 354.11,
+    "return_pct": -0.76
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "HIT",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 돌파! (실제 고가 $359.79 ≥ 예상 $355) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 96,
+      "grade": "A",
+      "passes": 3,
+      "fails": 0,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-10-05 CALL $337.5 V/OI 11.25 (극단) → 결과: -0.8%",
+    "2026-10-02 CALL $347.5 V/OI 8.963 (극단) → 결과: -0.8%",
+    "2026-10-02 CALL $350 V/OI 7.028 (극단) → 결과: -0.8%",
+    "2026-10-02 CALL $337.5 V/OI 6.738 (극단) → 결과: -0.8%",
+    "2026-10-02 CALL $485 V/OI 5.984 (극단) → 결과: -0.8%"
+  ],
+  "lesson": "거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급"
+}
