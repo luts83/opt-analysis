@@ -15,26 +15,26 @@
     "expiry": "2026-10-02"
   },
   "actual": {
-    "open": 40.75,
-    "high": 41.33,
-    "low": 39.33,
-    "close": 40.65,
-    "return_pct": -0.25
+    "open": 41.87,
+    "high": 43.91,
+    "low": 40.95,
+    "close": 41.76,
+    "return_pct": -0.26
   },
   "accuracy": {
     "band": "FAIL",
-    "support": "FAIL",
-    "resistance": "NEAR",
+    "support": "PASS",
+    "resistance": "HIT",
     "direction": "FAIL",
-    "summary": "밴드 실패 (과대평가 (실제 변동폭이 예상의 51%)) / 지지 실패 / 저항선 근접 (고가가 예상의 98% 도달) / 방향 불일치",
+    "summary": "밴드 실패 (과대평가 (실제 변동폭이 예상의 75%)) / 지지 참고 OK / 저항선 돌파! (실제 고가 $43.91 ≥ 예상 $42) / 방향 불일치",
     "grade": {
-      "score": 60,
-      "grade": "D",
-      "passes": 1,
-      "fails": 3,
+      "score": 46,
+      "grade": "F",
+      "passes": 2,
+      "fails": 2,
       "skipped_unverified": 0
     }
   },
   "missed_signals": [],
-  "lesson": "밴드는 천장/바닥이 아님 — 이탈은 관찰로만 기록 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+  "lesson": "학습 후보: 관심가 돌파+거래 급증 시 밴드 상단 확장 가능성 (단일 사례로 예측 규칙을 바꾸지 않음)"
 }
