@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-07",
+  "prediction_date": "2026-10-06",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 40.0,
+    "resistance": 42.0,
+    "band": [
+      38.49,
+      43.47
+    ],
+    "band_pct": 6.08,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 40.98,
+    "expiry": "2026-10-09"
+  },
+  "actual": {
+    "open": 40.88,
+    "high": 42.18,
+    "low": 40.15,
+    "close": 41.28,
+    "return_pct": 0.98
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "HIT",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 돌파! (실제 고가 $42.18 ≥ 예상 $42) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 96,
+      "grade": "A",
+      "passes": 3,
+      "fails": 0,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [],
+  "lesson": null
+}
