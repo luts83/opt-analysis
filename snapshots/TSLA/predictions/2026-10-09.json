@@ -1,0 +1,45 @@
+{
+  "date": "2026-10-09",
+  "prediction_date": "2026-10-08",
+  "ticker": "TSLA",
+  "predicted": {
+    "support": 370.0,
+    "resistance": 380.0,
+    "band": [
+      365.28,
+      382.58
+    ],
+    "band_pct": 2.31,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 373.93,
+    "expiry": "2026-10-09"
+  },
+  "actual": {
+    "open": 374.12,
+    "high": 380.68,
+    "low": 368.03,
+    "close": 375.0,
+    "return_pct": 0.24
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "HIT",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 돌파! (실제 고가 $380.68 ≥ 예상 $380) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 75,
+      "grade": "C+",
+      "passes": 2,
+      "fails": 1,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-10-12 만기 $310 PUT OI 대량 유입 (42 → 3,037, +7131.0%) → 결과: +0.2%",
+    "2026-10-09 PUT $375 V/OI 9.316 (극단) → 결과: +0.2%",
+    "2026-10-09 PUT $405 V/OI 6.417 (극단) → 결과: +0.2%",
+    "2026-10-09 PUT $380 V/OI 5.104 (극단) → 결과: +0.2%"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}
