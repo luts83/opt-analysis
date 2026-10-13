@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-13",
+  "prediction_date": "2026-10-09",
+  "ticker": "SPCX",
+  "predicted": {
+    "support": 160.0,
+    "resistance": 170.0,
+    "band": [
+      null,
+      null
+    ],
+    "band_pct": null,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 162.57,
+    "expiry": "2026-10-12"
+  },
+  "actual": {
+    "open": 164.7,
+    "high": 167.07,
+    "low": 160.85,
+    "close": 163.42,
+    "return_pct": -0.78
+  },
+  "accuracy": {
+    "band": "N/A",
+    "support": "PASS",
+    "resistance": "NEAR",
+    "direction": "SKIP",
+    "summary": "지지 참고 OK / 저항선 근접 (고가가 예상의 98% 도달) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 78,
+      "grade": "C+",
+      "passes": 2,
+      "fails": 0,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-10-16 만기 $385 CALL OI 대량 유입 (15 → 544, +3526.7%) → 결과: -0.8%",
+    "2026-10-16 만기 $105 CALL OI 대량 유입 (194 → 4,724, +2335.1%) → 결과: -0.8%",
+    "2026-10-16 만기 $410 CALL OI 대량 유입 (13 → 177, +1261.5%) → 결과: -0.8%",
+    "2026-10-16 만기 $110 CALL OI 대량 유입 (448 → 5,756, +1184.8%) → 결과: -0.8%",
+    "2026-10-16 만기 $35 PUT OI 대량 유입 (196 → 2,409, +1129.1%) → 결과: -0.8%"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급"
+}
