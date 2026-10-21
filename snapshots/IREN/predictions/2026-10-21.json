@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-21",
+  "prediction_date": "2026-10-20",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 25.0,
+    "resistance": 27.5,
+    "band": [
+      24.2,
+      29.64
+    ],
+    "band_pct": 10.1,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 26.92,
+    "expiry": "2026-10-23"
+  },
+  "actual": {
+    "open": 26.77,
+    "high": 27.89,
+    "low": 25.59,
+    "close": 26.62,
+    "return_pct": -0.58
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "HIT",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 돌파! (실제 고가 $27.89 ≥ 예상 $27.5) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 99,
+      "grade": "A",
+      "passes": 3,
+      "fails": 0,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-10-23 CALL $25 V/OI 12.03 (극단) → 결과: -0.6%",
+    "2026-10-23 CALL $28 V/OI 9.836 (극단) → 결과: -0.6%",
+    "2026-10-23 CALL $28.5 V/OI 7.841 (극단) → 결과: -0.6%",
+    "2026-11-20 PUT $80 V/OI 41.896 (극단) → 결과: -0.6%",
+    "2026-10-23 PUT $27.5 V/OI 21.53 (극단) → 결과: -0.6%"
+  ],
+  "lesson": "거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급"
+}
