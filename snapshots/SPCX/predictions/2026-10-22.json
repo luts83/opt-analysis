@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-22",
+  "prediction_date": "2026-10-21",
+  "ticker": "SPCX",
+  "predicted": {
+    "support": 140.0,
+    "resistance": 160.0,
+    "band": [
+      144.61,
+      176.59
+    ],
+    "band_pct": 9.96,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 160.6,
+    "expiry": "2026-10-23"
+  },
+  "actual": {
+    "open": 160.56,
+    "high": 166.18,
+    "low": 155.09,
+    "close": 159.31,
+    "return_pct": -0.78
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "UNVERIFIED",
+    "resistance": "HIT",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 미검증 / 저항선 돌파! (실제 고가 $166.18 ≥ 예상 $160) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 100,
+      "grade": "A",
+      "passes": 2,
+      "fails": 0,
+      "skipped_unverified": 2
+    }
+  },
+  "missed_signals": [
+    "2026-10-23 CALL $148 V/OI 14.048 (극단) → 결과: -0.8%",
+    "2026-10-23 CALL $220 V/OI 10.292 (극단) → 결과: -0.8%",
+    "2026-10-23 PUT $120 V/OI 39.026 (극단) → 결과: -0.8%",
+    "2026-10-23 PUT $140 V/OI 13.41 (극단) → 결과: -0.8%",
+    "2026-10-23 PUT $145 V/OI 9.775 (극단) → 결과: -0.8%"
+  ],
+  "lesson": "거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급"
+}

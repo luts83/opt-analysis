@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-22",
+  "prediction_date": "2026-10-21",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 27.0,
+    "resistance": 28.0,
+    "band": [
+      24.75,
+      29.77
+    ],
+    "band_pct": 9.21,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 27.26,
+    "expiry": "2026-10-23"
+  },
+  "actual": {
+    "open": 27.64,
+    "high": 28.39,
+    "low": 26.4,
+    "close": 27.84,
+    "return_pct": 0.72
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "HIT",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 돌파! (실제 고가 $28.39 ≥ 예상 $28) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 75,
+      "grade": "C+",
+      "passes": 2,
+      "fails": 1,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-10-23 PUT $25 V/OI 10.976 (극단) → 결과: +0.7%",
+    "2026-10-23 CALL $28 V/OI 18.799 (극단) → 결과: +0.7%",
+    "2026-10-23 CALL $27 V/OI 16.587 (극단) → 결과: +0.7%",
+    "2026-11-20 CALL $26 V/OI 10.564 (극단) → 결과: +0.7%",
+    "2026-10-23 CALL $27.5 V/OI 10.173 (극단) → 결과: +0.7%"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}
