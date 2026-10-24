@@ -15,26 +15,32 @@
     "expiry": "2026-10-23"
   },
   "actual": {
-    "open": 374.03,
-    "high": 388.86,
-    "low": 373.71,
-    "close": 374.58,
-    "return_pct": 0.15
+    "open": 373.2,
+    "high": 377.32,
+    "low": 365.27,
+    "close": 372.22,
+    "return_pct": -0.26
   },
   "accuracy": {
     "band": "PASS",
     "support": "PASS",
-    "resistance": "HIT",
-    "direction": "PASS",
-    "summary": "밴드 성공 / 지지 참고 OK / 저항선 돌파! (실제 고가 $388.86 ≥ 예상 $385) / 방향 일치",
+    "resistance": "NEAR",
+    "direction": "FAIL",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항선 근접 (고가가 예상의 98% 도달) / 방향 불일치",
     "grade": {
-      "score": 99,
-      "grade": "A",
-      "passes": 4,
-      "fails": 0,
+      "score": 62,
+      "grade": "D",
+      "passes": 3,
+      "fails": 1,
       "skipped_unverified": 0
     }
   },
-  "missed_signals": [],
-  "lesson": null
+  "missed_signals": [
+    "2026-10-23 PUT $385 V/OI 133.664 (극단) → 결과: -0.3%",
+    "2026-10-23 PUT $390 V/OI 68.798 (극단) → 결과: -0.3%",
+    "2026-10-23 PUT $382.5 V/OI 47.252 (극단) → 결과: -0.3%",
+    "2026-10-23 PUT $380 V/OI 30.719 (극단) → 결과: -0.3%",
+    "2026-10-23 PUT $330 V/OI 25.888 (극단) → 결과: -0.3%"
+  ],
+  "lesson": "거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급"
 }
