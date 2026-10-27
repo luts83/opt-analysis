@@ -1,0 +1,43 @@
+{
+  "date": "2026-10-27",
+  "prediction_date": "2026-10-23",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 24.0,
+    "resistance": 38.0,
+    "band": [
+      21.96,
+      27.86
+    ],
+    "band_pct": 11.84,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 24.91,
+    "expiry": "2026-10-30"
+  },
+  "actual": {
+    "open": 24.03,
+    "high": 26.74,
+    "low": 23.72,
+    "close": 25.43,
+    "return_pct": 5.83
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "UNVERIFIED",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 실패 / 저항 구간 미검증 (고가 $26.74, 예상 $38 미도달 · 29.6% 거리) — 실패가 아님 / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 67,
+      "grade": "C-",
+      "passes": 1,
+      "fails": 1,
+      "skipped_unverified": 2
+    }
+  },
+  "missed_signals": [
+    "2026-10-30 만기 $20 CALL OI 대량 유입 (94 → 1,340, +1325.5%) → 결과: 상승(+5.8%)",
+    "2026-11-20 만기 $26 CALL OI 대량 유입 (140 → 1,729, +1135.0%) → 결과: 상승(+5.8%)"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}
