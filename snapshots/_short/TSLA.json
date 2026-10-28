@@ -171,6 +171,15 @@
       "si_change_pct": -4.45,
       "borrow_fee_pct": null,
       "price_change_pct": 5.74
+    },
+    {
+      "date": "2026-10-28",
+      "short_pct_float": 1.96,
+      "short_ratio_days": 2.04,
+      "shares_short": 69350469,
+      "si_change_pct": 0.71,
+      "borrow_fee_pct": null,
+      "price_change_pct": 4.47
     }
   ]
 }

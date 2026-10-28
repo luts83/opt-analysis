@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-28",
+  "prediction_date": "2026-10-27",
+  "ticker": "SPCX",
+  "predicted": {
+    "support": 145.0,
+    "resistance": 160.0,
+    "band": [
+      143.04,
+      153.26
+    ],
+    "band_pct": 3.45,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 148.15,
+    "expiry": "2026-10-28"
+  },
+  "actual": {
+    "open": 147.49,
+    "high": 151.35,
+    "low": 146.63,
+    "close": 148.58,
+    "return_pct": 0.74
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "PASS",
+    "resistance": "UNVERIFIED",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 참고 OK / 저항 구간 미검증 (고가 $151.35, 예상 $160 미도달 · 5.4% 거리) — 실패가 아님 / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 95,
+      "grade": "A",
+      "passes": 2,
+      "fails": 0,
+      "skipped_unverified": 2
+    }
+  },
+  "missed_signals": [
+    "2026-10-30 CALL $150 V/OI 28.417 (극단) → 결과: +0.7%",
+    "2026-10-30 CALL $147 V/OI 23.202 (극단) → 결과: +0.7%",
+    "2026-10-28 CALL $148 V/OI 21.457 (극단) → 결과: +0.7%",
+    "2026-10-28 PUT $100 V/OI 100.559 (극단) → 결과: +0.7%",
+    "2026-10-30 PUT $147 V/OI 24.235 (극단) → 결과: +0.7%"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급"
+}
