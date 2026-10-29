@@ -1,0 +1,42 @@
+{
+  "date": "2026-10-29",
+  "prediction_date": "2026-10-28",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 15.0,
+    "resistance": 30.0,
+    "band": [
+      25.93,
+      31.19
+    ],
+    "band_pct": 9.21,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 28.56,
+    "expiry": "2026-10-30"
+  },
+  "actual": {
+    "open": 28.09,
+    "high": 28.88,
+    "low": 26.88,
+    "close": 28.84,
+    "return_pct": 2.67
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "UNVERIFIED",
+    "resistance": "UNVERIFIED",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 미검증 / 저항 구간 미검증 (고가 $28.88, 예상 $30 미도달 · 3.7% 거리) — 실패가 아님 / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 100,
+      "grade": "A",
+      "passes": 1,
+      "fails": 0,
+      "skipped_unverified": 3
+    }
+  },
+  "missed_signals": [
+    "2026-10-30 CALL $35.5 V/OI 9.713 (극단) → 결과: 상승(+2.7%)"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급"
+}
