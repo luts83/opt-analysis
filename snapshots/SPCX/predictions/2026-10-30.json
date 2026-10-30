@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-30",
+  "prediction_date": "2026-10-29",
+  "ticker": "SPCX",
+  "predicted": {
+    "support": 140.0,
+    "resistance": 145.0,
+    "band": [
+      137.85,
+      148.71
+    ],
+    "band_pct": 3.79,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 143.28,
+    "expiry": "2026-10-30"
+  },
+  "actual": {
+    "open": 142.3,
+    "high": 144.95,
+    "low": 138.1,
+    "close": 143.89,
+    "return_pct": 1.11
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "NEAR",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 근접 (고가가 예상의 100% 도달) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 68,
+      "grade": "C-",
+      "passes": 2,
+      "fails": 1,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-10-30 만기 $5 PUT OI 대량 유입 (2 → 132, +6500.0%) → 결과: +1.1%",
+    "2026-11-02 PUT $143 V/OI 5.731 (극단) → 결과: +1.1%",
+    "2026-10-30 CALL $143 V/OI 5.46 (극단) → 결과: +1.1%",
+    "2026-10-30 CALL $145 V/OI 5.283 (극단) → 결과: +1.1%",
+    "2026-10-30 CALL $144 V/OI 5.123 (극단) → 결과: +1.1%"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 거래량/미결제 비율이 극단인 계약은 '샀는지/팔았는지' 해석과 함께 언급 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}
