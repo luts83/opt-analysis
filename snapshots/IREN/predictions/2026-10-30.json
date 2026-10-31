@@ -15,24 +15,24 @@
     "expiry": "2026-10-30"
   },
   "actual": {
-    "open": 27.3,
-    "high": 27.83,
-    "low": 24.49,
-    "close": 26.25,
-    "return_pct": -3.85
+    "open": 24.4,
+    "high": 24.93,
+    "low": 23.06,
+    "close": 23.95,
+    "return_pct": -1.84
   },
   "accuracy": {
     "band": "FAIL",
     "support": "FAIL",
-    "resistance": "NEAR",
+    "resistance": "UNVERIFIED",
     "direction": "SKIP",
-    "summary": "밴드 실패 (과대평가 (실제 변동폭이 예상의 70%)) / 지지 실패 / 저항선 근접 (고가가 예상의 99% 도달) / 방향 채점제외(특수국면)",
+    "summary": "밴드 실패 (과대평가 (실제 변동폭이 예상의 39%)) / 지지 실패 / 저항 구간 미검증 (고가 $24.93, 예상 $28 미도달 · 11.0% 거리) — 실패가 아님 / 방향 채점제외(특수국면)",
     "grade": {
-      "score": 35,
+      "score": 23,
       "grade": "F",
-      "passes": 1,
+      "passes": 0,
       "fails": 2,
-      "skipped_unverified": 1
+      "skipped_unverified": 2
     }
   },
   "missed_signals": [],
