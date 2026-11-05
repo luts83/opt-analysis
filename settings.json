@@ -16,7 +16,7 @@
   "far_otm_min_oi": 5000,
   "oi_stale_zero_fraction": 0.9,
   "llm": {
-    "enabled": true,
+    "enabled": false,
     "provider": "openai",
     "model": "gpt-4o-mini",
     "max_output_tokens": 1600,
@@ -39,7 +39,7 @@
   },
   "report": {
     "style": "stock",
-    "quiet_mode": "one_line",
+    "quiet_mode": "skip",
     "event_min_score": 40,
     "focus_pct": 0.05,
     "focus_pct_2": 0.08,

@@ -32,6 +32,7 @@ OPTION_FIELDS = [
     "ask",
     "volume",
     "openInterest",
+    "impliedVolatility",  # 저장만 — 당장은 리포트 미사용
 ]
 
 # 스냅샷 저장 폴더 (Railway Volume 등에서는 SNAPSHOTS_DIR=/data/snapshots)
@@ -78,7 +79,7 @@ _DEFAULTS = {
     },
     "report": {
         "style": "stock",
-        "quiet_mode": "one_line",
+        "quiet_mode": "skip",
         "event_min_score": 40,
         "focus_pct": 0.05,
         "focus_pct_2": 0.08,
@@ -172,7 +173,7 @@ PRICE_MOVE_ALERT_PCT: float = float(_EV.get("price_move_alert_pct", 8.0))
 # ---- 리포트 스타일 (stock | experiment) ----
 _REPORT = _S.get("report") or {}
 REPORT_STYLE: str = str(_REPORT.get("style", "stock")).lower()
-REPORT_QUIET_MODE: str = str(_REPORT.get("quiet_mode", "one_line")).lower()
+REPORT_QUIET_MODE: str = str(_REPORT.get("quiet_mode", "skip")).lower()
 REPORT_EVENT_MIN_SCORE: int = int(_REPORT.get("event_min_score", 40))
 REPORT_FOCUS_PCT: float = float(_REPORT.get("focus_pct", 0.05))
 REPORT_FOCUS_PCT_2: float = float(_REPORT.get("focus_pct_2", 0.08))

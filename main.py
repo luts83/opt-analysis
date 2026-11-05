@@ -159,40 +159,45 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         )
         data["events"] = eventinfo
 
-        # 본문: quiet | event 스토리 (옵션↔주가 상관). 구형 장문은 event일 때만 부록.
-        mode = oe_result["mode"]
-        if mode == "skip":
-            narrative = ""
-            narrative_source = "quiet_skip"
-        elif mode == "quiet":
-            narrative = oe_result["body"]
-            narrative_source = "quiet"
-        else:
-            # 이벤트 데이: 상관 스토리 + (선택) 구형 상세는 짧게 유지하지 않고 본문만
-            narrative = oe_result["body"]
-            narrative_source = "option_event"
-            # 참고: 뉴스  Imp박이면 한 줄 추가
-            earn = (eventinfo or {}).get("earnings") or {}
-            if earn.get("phase") in ("임박", "직후") and earn.get("message"):
-                narrative = f"🚨 {earn['message']}\n\n" + narrative
+        # 레짐(한 줄) + 옵션↔주가 상관 인사이트 본문
+        import regime as regime_mod
+        import option_insight as oi_mod
+
+        spy_reg = getattr(regime_mod, "_SPY_CACHE", None)
+        if not isinstance(spy_reg, dict) or not spy_reg.get("available"):
+            spy_reg = regime_mod.load_spy_regime(data.get("date"))
+        reg = regime_mod.compute_regime_for_ticker(
+            ticker, asof=data.get("date"), today_snap=data
+        )
+        data["regime"] = reg
+
+        narrative = oi_mod.format_daily_insight(
+            ticker=ticker,
+            date=str(data.get("date")),
+            today_snap=data,
+            prev_snap=prev_any,
+            oe_result=oe_result,
+            regime=reg,
+            spy_regime=spy_reg if isinstance(spy_reg, dict) else None,
+        )
+        earn = (eventinfo or {}).get("earnings") or {}
+        if earn.get("phase") in ("임박", "직후") and earn.get("message"):
+            narrative = f"🚨 {earn['message']}\n\n" + narrative
 
         data["narrative"] = narrative
-        data["narrative_source"] = narrative_source
-        data["report_mode"] = mode
+        data["narrative_source"] = "option_insight"
+        data["report_mode"] = oe_result.get("mode") or "brief"
+        data["option_distribution"] = oi_mod.build_distribution(
+            data, oe_result.get("price", {}).get("close") or data.get("spot")
+        )
 
         path = None
         if save:
             path = snapshot_store.save_snapshot(data)
 
-        if mode == "skip":
-            report = (
-                f"[{ticker}] quiet skip "
-                f"(score {oe_result['score_info'].get('score')})"
-            )
-        else:
-            report = narrative
-            if path:
-                report += f"\n[저장됨: {path}]"
+        report = narrative
+        if path:
+            report += f"\n[저장됨: {path}]"
         return report, True, path
     except Exception as e:  # noqa: BLE001
         return (
@@ -270,10 +275,26 @@ def main(argv: list[str] | None = None) -> int:
     tickers = [args.ticker.upper()] if args.ticker else config.TICKERS
 
     try:
+        # SPY 레짐 1회 수집 (일일 브리프·동조 플래그용)
+        import regime as regime_mod
+
+        spy_info = None
+        try:
+            spy_info = regime_mod.fetch_and_save_spy(save=not args.no_save)
+            print(
+                f"[regime] SPY {spy_info.get('regime_ko')} "
+                f"slope={spy_info.get('slope_pct')} asof={spy_info.get('asof')}"
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[regime] SPY 수집 실패(무시): {e}")
+
         any_fail = False
         reports: list[str] = []
         attachments: list[Path] = []
         for tk in tickers:
+            # process_ticker 가 _spy_regime 을 쓰도록 클로저 주입 대신
+            # 모듈 수준 캐시
+            regime_mod._SPY_CACHE = spy_info  # type: ignore[attr-defined]
             report, ok, path = process_ticker(tk, save=not args.no_save)
             reports.append(report)
             if path:

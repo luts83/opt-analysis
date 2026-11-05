@@ -40,6 +40,18 @@ _LEGACY_RESULT = {
 
 MIN_PATTERN_SAMPLES = 8
 
+# 텔레그램 장문 발송 허용 결과 (weak/미도달/불일치는 저장만)
+STRONG_SEND_RESULTS = frozenset(
+    {
+        "breakout_success",
+        "breakout_fail",
+        "support_success",
+        "support_fail",
+        "approach_reverse",
+        "level_pass",
+    }
+)
+
 
 def _cfg() -> dict:
     import config
@@ -48,13 +60,15 @@ def _cfg() -> dict:
         "focus_pct": float(getattr(config, "REPORT_FOCUS_PCT", 0.05)),
         "focus_pct_2": float(getattr(config, "REPORT_FOCUS_PCT_2", 0.08)),
         "event_min_score": int(getattr(config, "REPORT_EVENT_MIN_SCORE", 40)),
-        "quiet_mode": str(getattr(config, "REPORT_QUIET_MODE", "one_line")),
+        "quiet_mode": str(getattr(config, "REPORT_QUIET_MODE", "skip")),
         "volume_mult_hi": 1.5,
         "volume_mult_lo": 0.6,
-        "min_near_volume": 2000,
-        "min_voi_extreme": 5.0,
+        "min_near_volume": 3000,
+        "min_voi_extreme": 8.0,
         "match_pct": 0.015,  # 반응구간↔strike 매칭 허용
         "significant_move_pct": 2.5,
+        # ATM 자동터치: 이 거리(%) 미만이면 '반응'으로 세지 않음
+        "atm_noise_pct": 1.0,
     }
 
 
@@ -286,7 +300,11 @@ def _is_meaningful(e: dict) -> bool:
     et = e.get("event_type") or ""
     vol = int(e.get("volume") or 0)
     voi = float(e.get("voi") or 0)
-    if et == "volume_spike_near":
+    dist = float(e.get("dist_pct") or 99)
+    # 너무 가까운 ATM은 거래만 많아도 신호로 보지 않음 (스파이크 제외)
+    if et != "volume_spike_near" and dist < _cfg()["atm_noise_pct"]:
+        return False
+    if et == "volume_spike_near" and vol >= 2000:
         return True
     if et == "near_volume" and vol >= 8000:
         return True
@@ -514,22 +532,36 @@ def match_events_to_zones(
         key = (round(s, 2), e.get("side"))
         if key in used:
             continue
-        # 구간에 가깝거나 당일 레인지에 걸치면 매칭
+        # 고점(콜)·저점(풋) 앵커에 가깝거나, 강한 이벤트면 매칭
+        side = str(e.get("side") or "CALL").upper()
         near_zone = False
         zone_hit = None
         for z in zones:
             zp = float(z["price"])
-            if zp and abs(s - zp) / zp <= mp:
-                near_zone = True
-                zone_hit = z
-                break
+            if not zp or abs(s - zp) / zp > mp:
+                continue
+            # ATM 자동터치 방지: 고/저 반응만 인정 (종가 앵커만으로는 부족)
+            if z.get("kind") == "close":
+                continue
+            if side == "CALL" and z.get("kind") != "high":
+                continue
+            if side == "PUT" and z.get("kind") != "low":
+                continue
+            near_zone = True
+            zone_hit = z
+            break
         in_range = lo > 0 and lo * 0.99 <= s <= hi * 1.01
+        dist = float(e.get("dist_pct") or 99)
+        atm_noise = dist < cfg["atm_noise_pct"]
+        # 단순 당일 레인지 포함만으로는 반응 취급 안 함 (ATM 동어반복 방지)
         strong = _is_meaningful(e)
-        if not near_zone and not in_range and not strong:
+        if not near_zone and not strong:
+            continue
+        if atm_noise and not near_zone:
             continue
         used.add(key)
-        cls = classify_relation(s, str(e.get("side") or "CALL"), ohlc, has_strong_option=strong)
-        if not strong and (near_zone or in_range):
+        cls = classify_relation(s, side, ohlc, has_strong_option=strong)
+        if not strong:
             cls = {
                 "result": "weak_option",
                 "note": f"{_fmt_px(s)} 반응 구간 근처 · 옵션 근거 약함",
@@ -624,9 +656,19 @@ def find_setup_patterns(
         fail = counts.get("support_fail", 0) + counts.get("level_pass", 0)
         ok_label, fail_label = "지지 성공", "지지 실패·통과"
 
-    status = "ok" if n >= MIN_PATTERN_SAMPLES else "insufficient"
+    weak_n = counts.get("weak_option", 0)
+    weak_share = (weak_n / n) if n else 0.0
+    if n > 0 and weak_share >= 0.5:
+        status = "weak_bucket"
+        available = False
+    elif n >= MIN_PATTERN_SAMPLES:
+        status = "ok"
+        available = True
+    else:
+        status = "insufficient"
+        available = n > 0
     return {
-        "available": n > 0,
+        "available": available,
         "n": n,
         "counts": counts,
         "avg_next_return_pct": avg_ret,
@@ -635,9 +677,64 @@ def find_setup_patterns(
         "success_label": ok_label,
         "fail_label": fail_label,
         "status": status,
+        "weak_share": round(weak_share, 2),
         "family": family,
         "side": side,
         "probe_result": _norm_result(probe.get("result"), side),
+    }
+
+
+def null_baseline_for_distance(
+    prev_snap: dict | None,
+    today_ohlc: dict | None,
+    *,
+    dist_pct: float | None,
+    band_pp: float = 1.5,
+) -> dict[str, Any]:
+    """같은 거리대의 비이벤트 행사가가 당일 고저에 포함되는 비율 (null 베이스라인)."""
+    if not prev_snap or not today_ohlc or dist_pct is None:
+        return {"available": False}
+    try:
+        hi = float(today_ohlc["high"])
+        lo = float(today_ohlc["low"])
+        spot = float(prev_snap.get("spot") or prev_snap.get("regular_close") or 0)
+        target = float(dist_pct)
+    except (TypeError, ValueError, KeyError):
+        return {"available": False}
+    if not spot or hi <= 0 or lo <= 0:
+        return {"available": False}
+
+    event_keys = {
+        (round(float(e["strike"]), 2), str(e.get("side") or "").upper())
+        for e in detect_events_from_snap(prev_snap)
+    }
+    near: list[float] = []
+    for role in ("this_week", "next_week", "monthly"):
+        block = (prev_snap.get("expiries") or {}).get(role) or {}
+        for side_key, side in (("calls", "CALL"), ("puts", "PUT")):
+            for row in block.get(side_key) or []:
+                try:
+                    s = float(row["strike"])
+                    d = _dist_pct(s, spot)
+                except (TypeError, ValueError, KeyError):
+                    continue
+                if d is None or abs(d - target) > band_pp:
+                    continue
+                if (round(s, 2), side) in event_keys:
+                    continue
+                near.append(s)
+    # 중복 strike 제거
+    uniq = sorted(set(round(s, 2) for s in near))
+    if len(uniq) < 3:
+        return {"available": False, "n": len(uniq)}
+    hits = sum(1 for s in uniq if lo * 0.995 <= s <= hi * 1.005)
+    return {
+        "available": True,
+        "n": len(uniq),
+        "in_range_n": hits,
+        "in_range_rate": round(hits / len(uniq), 2),
+        "dist_pct": target,
+        "band_pp": band_pp,
     }
 
 
@@ -899,21 +996,38 @@ def format_quiet_report(
     return line
 
 
-def format_pattern_block(pat: dict | None, primary: dict | None) -> str:
-    """과거 동일 패턴 — 연결률 대신 이걸 KPI로."""
-    L = ["📚 과거 동일 패턴"]
+def format_pattern_block(
+    pat: dict | None,
+    primary: dict | None,
+    baseline: dict | None = None,
+) -> str:
+    """베이스라인 블록 (연결률 없음)."""
+    L = ["📐 베이스라인"]
     if not primary:
         L.append("· 오늘 대표 셋업 없음")
         return "\n".join(L)
     side_ko = "콜" if primary.get("side") == "CALL" else "풋"
     res_ko = RESULT_KO.get(primary.get("result"), primary.get("result"))
     L.append(
-        f"· 셋업: {_fmt_px(primary['strike'])} {side_ko} 집중 → "
-        f"다음날 반응 → {res_ko}"
+        f"· 셋업: {_fmt_px(primary['strike'])} {side_ko} → {res_ko}"
     )
+    if baseline and baseline.get("available"):
+        L.append(
+            f"· 같은 거리 비이벤트 행사가 당일 레인지 포함: "
+            f"{baseline['in_range_n']}/{baseline['n']} "
+            f"({baseline['in_range_rate']*100:.0f}%)"
+        )
+    if not pat or pat.get("status") == "weak_bucket":
+        L.append("· 과거 패턴: 약신호 버킷 — 표시 안 함")
+        return "\n".join(L)
+    if not pat.get("available") and pat.get("status") == "insufficient":
+        L.append(
+            f"· 과거 동일 셋업 {pat.get('n', 0)}회 "
+            f"(최소 {MIN_PATTERN_SAMPLES}회 미만 · 참고만)"
+        )
+        return "\n".join(L)
     if not pat or not pat.get("available"):
         L.append("· 과거 동일 셋업 기록 없음")
-        L.append("· 표본 부족 — 참고용")
         return "\n".join(L)
     L.append(f"· 과거 동일 셋업: {pat['n']}회")
     L.append(
@@ -922,15 +1036,21 @@ def format_pattern_block(pat: dict | None, primary: dict | None) -> str:
     )
     if pat.get("avg_next_return_pct") is not None:
         L.append(f"· 평균 다음날 수익률: {pat['avg_next_return_pct']:+.1f}%")
-    # 세부 카운트
-    bits = []
-    for code, n in sorted((pat.get("counts") or {}).items(), key=lambda x: -x[1]):
-        bits.append(f"{RESULT_KO.get(code, code)} {n}")
-    if bits:
-        L.append(f"· 상세: {' · '.join(bits[:5])}")
-    if pat.get("status") == "insufficient":
-        L.append(f"· 표본 부족 — 참고용 (최소 {MIN_PATTERN_SAMPLES}회 권장)")
     return "\n".join(L)
+
+
+def _oi_freshness_line(snap: dict | None) -> str | None:
+    if not snap:
+        return None
+    if snap.get("oi_stale_raw") or snap.get("oi_carried_forward"):
+        return "· OI: 미갱신/이월 — OI 근거 문장 생략"
+    m = snap.get("metrics") or {}
+    if m.get("oi_available") is False or m.get("oi_data_stale"):
+        return "· OI: 신뢰 낮음 — OI 근거 문장 생략"
+    src = m.get("oi_source")
+    if src:
+        return f"· OI: {src}"
+    return "· OI: 당일 수집분"
 
 
 def format_learning_report(
@@ -942,44 +1062,70 @@ def format_learning_report(
     matched: list[dict],
     today_events: list[dict],
     pattern: dict | None,
+    baseline: dict | None = None,
+    today_snap: dict | None = None,
 ) -> str:
-    """가격→매칭→학습 본문 (연결률 없음)."""
+    """3블록: 어제→오늘 팩트 / 베이스라인 / 내일 1개."""
     L: list[str] = []
-    L.append(f"📊 {ticker} 옵션↔주가 학습")
+    L.append(f"📊 {ticker} 옵션↔주가")
     L.append(date)
+    oi_line = _oi_freshness_line(today_snap)
+    if oi_line:
+        L.append(oi_line)
     L.append("")
-    L.append("💡 오늘 확인된 것")
-    for b in insight.get("bullets") or []:
-        L.append(f"· {b}" if not b.startswith(" ") else f" {b}")
 
-    # 관계 표 (로그가 아니라 분류)
-    if matched:
-        L.append("")
-        L.append("📋 옵션↔가격 관계")
-        for r in matched[:5]:
-            side = "콜" if r.get("side") == "CALL" else "풋"
-            L.append(
-                f"· {_fmt_px(r['strike'])} {side} → "
-                f"{RESULT_KO.get(r.get('result'), r.get('result'))}"
-            )
-            if r.get("outcome_note"):
-                L.append(f"  {r['outcome_note']}")
+    # 1) 팩트
+    L.append("💡 어제→오늘 팩트")
+    primary = insight.get("primary") or (matched[0] if matched else None)
+    if price.get("available"):
+        ret = price.get("return_pct")
+        ret_s = f" ({ret:+.1f}%)" if ret is not None else ""
+        L.append(
+            f"· 주가 {_fmt_px(price['open'])}→{_fmt_px(price['close'])}{ret_s} "
+            f"/ 고 {_fmt_px(price['high'])} · 저 {_fmt_px(price['low'])}"
+        )
+    strong_rows = [
+        r
+        for r in (matched or [])
+        if r.get("result") in STRONG_SEND_RESULTS
+    ][:2]
+    if not strong_rows and primary and primary.get("result") in STRONG_SEND_RESULTS:
+        strong_rows = [primary]
+    for r in strong_rows:
+        side = "콜" if r.get("side") == "CALL" else "풋"
+        L.append(
+            f"· {_fmt_px(r['strike'])} {side} → "
+            f"{RESULT_KO.get(r.get('result'), r.get('result'))}"
+            + (f" — {r['outcome_note']}" if r.get("outcome_note") else "")
+        )
+    if not strong_rows:
+        L.append("· 강한 옵션↔가격 매칭 없음")
+
+    # 2) 베이스라인
+    L.append("")
+    L.append(format_pattern_block(pattern, primary, baseline=baseline))
+
+    # 3) 내일 1개
+    L.append("")
+    L.append("🔭 내일 볼 것")
+    m_today = [e for e in (today_events or []) if _is_meaningful(e)]
+    if m_today:
+        e = m_today[0]
+        side = "콜" if e.get("side") == "CALL" else "풋"
+        L.append(
+            f"· {_fmt_px(e['strike'])} {side} "
+            f"({e.get('detail') or e.get('event_type')}) 반응 여부"
+        )
+    elif primary and primary.get("strike") is not None:
+        side = "콜" if primary.get("side") == "CALL" else "풋"
+        L.append(
+            f"· {_fmt_px(primary['strike'])} {side} 재테스트·이탈 여부"
+        )
+    else:
+        L.append("· 근거리 강한 이벤트 없음 — 관측만")
 
     L.append("")
-    L.append(format_pattern_block(pattern, insight.get("primary") or (matched[0] if matched else None)))
-
-    if today_events:
-        L.append("")
-        L.append("🔭 오늘 새 근거리 이벤트 (내일 검증)")
-        for e in [x for x in today_events if _is_meaningful(x)][:3] or today_events[:2]:
-            side = "콜" if e.get("side") == "CALL" else "풋"
-            L.append(
-                f"· {_fmt_px(e['strike'])} {side} · {e.get('event_type')} · "
-                f"{e.get('detail') or ''}"
-            )
-
-    L.append("")
-    L.append("⚠️ 관측·학습 기록이며 투자 조언이 아닙니다. 연결≠인과.")
+    L.append("⚠️ 관측 기록 · 투자 조언 아님 · 연결≠인과")
     return "\n".join(L)
 
 
@@ -994,7 +1140,7 @@ def build_report_mode(
     vol_anom: dict | None,
     save: bool = True,
 ) -> dict[str, Any]:
-    """메인: quiet | learning 리포트."""
+    """메인: 로그는 매일 저장, 장문 발송은 강한 매칭만."""
     prev_events = detect_events_from_snap(prev_snap)
     today_events = detect_events_from_snap(today_snap)
     score_info = day_event_score(
@@ -1013,63 +1159,67 @@ def build_report_mode(
     price = analyze_price_day(today_ohlc, prev_close=prev_close)
     zones = extract_reaction_zones(price)
 
-    # 가격 우선: 유의미한 주가 움직임만 있어도 학습 리포트
-    is_learning_day = bool(score_info["is_event_day"]) or bool(
-        price.get("significant") and prev_events
-    )
-
+    m_prev = [e for e in prev_events if _is_meaningful(e)]
+    # 저장: meaningful만. 화면 매칭: 전일 이벤트 상위(상관 인사이트용)
+    to_save = m_prev
+    to_match = m_prev or prev_events[:4]
     resolved: list[dict] = []
-    matched: list[dict] = []
-    insight: dict = {}
-    pattern: dict | None = None
-
-    spot = price.get("close") if price.get("available") else today_snap.get("spot")
-
-    if is_learning_day:
-        to_resolve = [e for e in prev_events if _is_meaningful(e)] or prev_events
+    if to_save and today_ohlc:
         resolved = resolve_prev_events(
             ticker,
-            to_resolve,
+            to_save,
             today_ohlc,
             outcome_date=date,
             save=save,
             prev_close=prev_close,
             zones=zones,
         )
-        matched = match_events_to_zones(to_resolve, zones, today_ohlc or {})
-        if not matched and resolved:
-            # 분류만 있고 구간 매칭 약하면 resolved 상위 사용
-            matched = [
-                r
-                for r in resolved
-                if r.get("result") not in ("not_reached",)
-            ][:4] or resolved[:3]
-        insight = build_learning_insight(
-            price=price,
-            zones=zones,
-            matched=matched,
-            prev_events=to_resolve,
+
+    matched = match_events_to_zones(to_match, zones, today_ohlc or {})
+    if not matched and resolved:
+        matched = [
+            r
+            for r in resolved
+            if r.get("result") in STRONG_SEND_RESULTS
+        ][:4]
+
+    insight = build_learning_insight(
+        price=price,
+        zones=zones,
+        matched=matched,
+        prev_events=to_match,
+    )
+    primary = insight.get("primary") or (matched[0] if matched else None)
+    pattern: dict | None = None
+    baseline: dict | None = None
+    if primary:
+        pattern = find_setup_patterns(ticker, primary)
+        baseline = null_baseline_for_distance(
+            prev_snap,
+            today_ohlc,
+            dist_pct=primary.get("dist_pct"),
         )
-        primary = insight.get("primary") or (matched[0] if matched else None)
-        if primary:
-            pattern = find_setup_patterns(ticker, primary)
+
+    # 본문은 main 에서 option_insight 가 조립. 여기 mode 는 메타용.
+    strong_match = [
+        r for r in (matched or []) if r.get("result") in STRONG_SEND_RESULTS
+    ]
+    if m_prev and strong_match:
+        mode = "event"
         body = format_learning_report(
             ticker=ticker,
             date=date,
             price=price,
             insight=insight,
-            matched=matched or resolved[:4],
+            matched=strong_match or matched,
             today_events=today_events,
             pattern=pattern,
+            baseline=baseline,
+            today_snap=today_snap,
         )
-        mode = "event"
     else:
-        body = format_quiet_report(
-            ticker, date, score_info, spot=float(spot) if spot is not None else None
-        )
-        mode = "quiet"
-        if score_info.get("quiet_mode") == "skip":
-            mode = "skip"
+        mode = "brief"
+        body = ""
 
     return {
         "mode": mode,
@@ -1081,7 +1231,8 @@ def build_report_mode(
         "matched": matched,
         "insight": insight,
         "pattern": pattern,
+        "baseline": baseline,
         "price": price,
-        "correlation": None,  # 연결률 KPI 폐기
+        "correlation": None,
     }
 

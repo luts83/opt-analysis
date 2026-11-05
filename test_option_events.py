@@ -48,8 +48,53 @@ def test_quiet_when_no_prev_events():
         vol_anom={},
         save=False,
     )
-    assert out["mode"] in ("quiet", "skip")
-    assert "조용함" in out["body"] or out["mode"] == "skip"
+    # 본문은 main/option_insight 가 조립. 여기 mode 는 event|brief 메타.
+    assert out["mode"] in ("quiet", "skip", "brief")
+
+
+def test_significant_price_alone_does_not_send():
+    """가격만 크게 움직이고 약한 옵션이면 장문 발송 안 함 (로그/모드는 quiet|skip)."""
+    prev = {
+        "ticker": "IREN",
+        "date": "2026-09-02",
+        "spot": 36.0,
+        "metrics": {
+            "top_call_volume": [
+                {"strike": 36.0, "volume": 2500, "expiry": "2026-09-04", "oi": 100},
+            ],
+            "top_put_volume": [],
+            "top_voi": [],
+        },
+        "day_over_day": {"volume_mult": 1.0},
+        "volume_anomaly": {},
+    }
+    today = {
+        "ticker": "IREN",
+        "date": "2026-09-03",
+        "spot": 33.0,
+        "previous_close": 36.0,
+        "metrics": {"top_call_volume": [], "top_put_volume": [], "top_voi": []},
+        "day_over_day": {"volume_mult": 1.0},
+        "volume_anomaly": {},
+        "oi_stale_raw": True,
+    }
+    out = oe.build_report_mode(
+        ticker="IREN",
+        date="2026-09-03",
+        prev_snap=prev,
+        today_snap=today,
+        today_ohlc={
+            "open": 36.0,
+            "high": 36.2,
+            "low": 32.5,
+            "close": 33.0,
+            "return_pct": -8.3,
+        },
+        dod={"volume_mult": 1.0},
+        vol_anom={},
+        save=False,
+    )
+    assert out["mode"] in ("quiet", "skip", "brief")
 
 
 def test_classify_breakout_fail_and_success():
@@ -128,11 +173,11 @@ def test_learning_report_has_insight_not_connect_rate():
     assert out["mode"] == "event"
     body = out["body"]
     assert "연결률" not in body
-    assert "오늘 확인된 것" in body
-    assert "과거 동일 패턴" in body
+    assert "어제→오늘 팩트" in body
+    assert "베이스라인" in body
+    assert "내일 볼 것" in body
     assert "돌파 실패" in body or "접근 후 반전" in body
-    # 인사이트: 콜 많음 ≠ 학습 결론의 핵심
-    assert "저항" in body or "돌파" in body
+    assert "돌파" in body
 
 
 def test_day_score_prev_events_force_event_day():
@@ -189,6 +234,7 @@ if __name__ == "__main__":
     tests = [
         test_near_volume_detected_far_ignored,
         test_quiet_when_no_prev_events,
+        test_significant_price_alone_does_not_send,
         test_classify_breakout_fail_and_success,
         test_learning_report_has_insight_not_connect_rate,
         test_day_score_prev_events_force_event_day,

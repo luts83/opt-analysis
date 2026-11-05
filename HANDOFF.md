@@ -2,19 +2,18 @@
 
 > 세션을 마치거나 큰 작업을 끝낼 때 이 파일을 2~5줄만 갱신하세요.
 
-## 현재 상태 (2026-09-29)
+## 현재 상태 (2026-11-03)
 
-- **학습 파이프라인(가격 우선)**: 주가 변화 → 반응 구간 → 전일 옵션 매칭 → 관계 분류 → 과거 동일 셋업 → 오늘 확인된 것.
-- 결과 라벨: 돌파 성공/실패 · 지지 성공/실패 · 접근 후 반전 · 가격대 통과 · 미도달 · 불일치 · 근거 부족.
-- KPI: **연결률 제거** → 과거 동일 패턴 (성공/실패 횟수 · 평균 다음날 수익률 · 표본 부족 표시).
-- Quiet 게이트 유지 (`settings.json` report.quiet_mode).
+- **일일 본문**: `option_insight.py` — ①어제 옵션→오늘 주가(해석·단정금지) ②현가 위·아래 분포+시나리오 ③과거 셋업. 레짐은 한 줄 보조.
+- 숏배팅/인과 단정 금지. 콜≠매수. 주간 방향 리포트(`regime` 빈도) 유지.
+- SPY `_market/SPY/`. LLM off.
 
 ## 다음에 할 일
 
-1. 배포 후 수일간 학습 문장·패턴 표본 품질 관찰
-2. 베이스라인(비이벤트 근거리) 대비는 후순위
+1. 배포 후 텔레그램 톤·스팸 여부 확인
+2. Volume 스냅으로 상관 표본 축적
 3. Borrow Fee(ORTEX) 선택
 
 ## 명령
 
-`make report-preview` · `python test_option_events.py`
+`python main.py --no-save --no-telegram` · `python test_option_insight.py` · `python test_option_events.py`

@@ -1,9 +1,9 @@
-"""주간 검증(백테스트) 리포트 — 매주 금요일 미장 마감 후(토 아침 KST).
+"""주간 방향 리포트 — 매주 금요일 미장 마감 후(토 아침 KST).
 
 흐름:
-  그 주 월~금 일일 스냅샷 로드 → '그 주 첫(월요일) 예측' 추출
-  → 실제 주간 OHLC 수집 → 항목별 정확도/종합 성적 채점
-  → 최근 4주 추이 → ChatGPT 자연어 해석(폴백 규칙기반)
+  그 주 월~금 스냅샷 → 가격 레짐·낙폭·SPY 동조
+  → 과거 동조건 전진 빈도(표본 명시) → 무효화 조건
+  → 강한 옵션 라벨 요약 → (부록) 밴드 숫자 채점
   → 주간 스냅샷 저장 → 텔레그램(우선) / 이메일(선택) 발송.
 
 실행:
@@ -36,11 +36,6 @@ def week_bounds(ref: dt.date) -> tuple[dt.date, dt.date]:
     return monday, monday + dt.timedelta(days=4)
 
 
-def _grade_emoji(grade: str) -> str:
-    head = grade[0]
-    return {"A": "🏆", "B": "👍", "C": "🙂", "D": "😐", "F": "😢"}.get(head, "📋")
-
-
 # ------------------------------------------------------------------ #
 # 최근 4주 추이
 # ------------------------------------------------------------------ #
@@ -65,101 +60,52 @@ def build_history_trend(ticker: str, week_ending: str) -> list[dict]:
 
 
 # ------------------------------------------------------------------ #
-# 자연어 해석 (LLM → 규칙기반 폴백)
+# 숫자 요약 본문
 # ------------------------------------------------------------------ #
 
-def _payload(ticker, week_ending, prediction, ohlc, results, trend, partial) -> dict:
-    return {
-        "티커": ticker,
-        "주간": week_ending,
-        "부분데이터": partial,
-        "예측기준일": prediction.get("from_date"),
-        "예측": {
-            "예상밴드": [prediction["band_lower"], prediction["band_upper"]],
-            "예상저항": prediction["resistance"],
-            "예상지지": prediction["support"],
-            "예상심리": prediction["sentiment"],
-        },
-        "실제OHLC": ohlc,
-        "채점": results,
-        "최근추이": trend,
-    }
-
-
 def build_fallback(ticker, week_ending, prediction, ohlc, results, trend, partial) -> str:
+    """숫자 요약만 — 비유·과장 등급 해설 없음."""
     g = results["grade"]
     L: list[str] = []
-    L.append(f"🧾 이번 주 {ticker} 옵션 예측 성적표 - {week_ending}")
-    L.append("")
-    L.append(f"{_grade_emoji(g['grade'])} 종합 성적: {g['grade']} ({g['score']}점)")
+    L.append(f"🧾 {ticker} 주간 검증 {week_ending}")
     if partial:
-        L.append("※ 이번 주 데이터가 일부만 있어(주중/부분) 참고용 채점이에요.")
-    L.append("")
-
+        L.append("※ 부분 데이터")
     L.append(
-        f"💰 실제 주가: 시가 ${ohlc['open']} → 종가 ${ohlc['close']} "
-        f"(주간 {ohlc['return_pct']:+.1f}%), 고가 ${ohlc['high']} / 저가 ${ohlc['low']}"
+        f"· 실제: O {ohlc['open']} / H {ohlc['high']} / L {ohlc['low']} / "
+        f"C {ohlc['close']} ({ohlc['return_pct']:+.1f}%, {ohlc['days']}일)"
     )
-    L.append("")
-
     band = results.get("band")
     if band:
-        L.append("📐 예상 범위 vs 실제")
         L.append(
-            f"예상 밴드 ${band['predicted'][0]}~${band['predicted'][1]} vs "
-            f"실제 ${band['actual'][0]}~${band['actual'][1]} → {band['label']} "
-            f"({band['score']}점)"
+            f"· 밴드: 예상 {band['predicted'][0]}~{band['predicted'][1]} "
+            f"vs 실제 {band['actual'][0]}~{band['actual'][1]} "
+            f"→ {band.get('score')}점"
         )
-        L.append("")
-
     res = results.get("resistance")
     sup = results.get("support")
-    if res or sup:
-        L.append("🔴 저항 / 🟢 지지 채점")
-        if res:
-            L.append(f"- 저항: {res['label']} ({res['score']}점)")
-        if sup:
-            L.append(f"- 지지: {sup['label']} ({sup['score']}점)")
-        L.append("")
-
-    d = results["direction"]
-    L.append("🧭 방향 예측 채점")
-    L.append(f"{d['label']} ({d['score']}점)")
-    L.append("")
-
-    L.append("💡 이번 주 배운 것")
-    parts = {
-        "밴드(범위)": band,
-        "방향": d,
-        "저항선": res,
-        "지지선": sup,
-    }
-    scored = [(k, v["score"]) for k, v in parts.items() if v]
-    if scored:
-        best = max(scored, key=lambda x: x[1])
-        worst = min(scored, key=lambda x: x[1])
-        L.append(f"- 이번 주 가장 잘 맞은 지표: {best[0]} ({best[1]}점)")
-        L.append(f"- 가장 빗나간 지표: {worst[0]} ({worst[1]}점) → 다음 주 해석 시 주의")
-    L.append("")
-
+    if res:
+        L.append(
+            f"· 저항 예상 {prediction.get('resistance')} / 고가 {ohlc['high']} "
+            f"→ {res.get('score')}점"
+        )
+    if sup:
+        L.append(
+            f"· 지지 예상 {prediction.get('support')} / 저가 {ohlc['low']} "
+            f"→ {sup.get('score')}점"
+        )
+    d = results.get("direction") or {}
+    if d:
+        L.append(f"· 방향: {d.get('label')} ({d.get('score')}점)")
+    L.append(f"· 종합(참고): {g.get('grade')} {g.get('score')}점 — 밴드·S/R 해석 과신 금지")
     if trend:
-        L.append("📅 최근 추이")
-        for r in trend:
-            L.append(f"- {r['주간']}: {r['등급']} ({r['종합점수']}점)")
-        L.append("")
-
-    L.append("⚠️ 이 리포트는 투자 조언이 아니라 예측 검증 기록입니다.")
+        recent = ", ".join(f"{r['주간']} {r['등급']}" for r in trend[-4:])
+        L.append(f"· 최근: {recent}")
+    L.append("⚠️ 숫자 검증 기록 · 투자 조언 아님")
     return "\n".join(L)
 
 
 def build_narrative(ticker, week_ending, prediction, ohlc, results, trend, partial):
-    """(본문, 출처)."""
-    import llm
-
-    payload = _payload(ticker, week_ending, prediction, ohlc, results, trend, partial)
-    text = llm.generate_weekly(payload)
-    if text:
-        return text, "openai"
+    """숫자표만 (LLM 비유·성적 연극 중지)."""
     return (
         build_fallback(ticker, week_ending, prediction, ohlc, results, trend, partial),
         "rule",
@@ -219,29 +165,41 @@ def process_ticker(
                 None,
             )
 
-        prediction = wm.extract_prediction(snaps[0])  # 그 주 첫(가장 이른) 스냅샷
-        if prediction["band_lower"] is None:
-            return (
-                f"[{ticker}] {prediction['from_date']} 예측(밴드)이 비어 검증 불가.",
-                False,
-                None,
-            )
+        import regime as regime_mod
 
-        ohlc = wm.weekly_ohlc(ticker, monday, friday)
-        if not ohlc:
-            return (f"[{ticker}] 실제 주간 OHLC 를 가져오지 못함.", False, None)
+        spy_reg = regime_mod.load_spy_regime(friday.isoformat())
+        if not spy_reg or not spy_reg.get("available"):
+            try:
+                spy_reg = regime_mod.fetch_and_save_spy(
+                    friday.isoformat(), save=save
+                )
+            except Exception:  # noqa: BLE001
+                spy_reg = None
 
-        results = wm.build_weekly(ticker, prediction, ohlc)
-        trend = build_history_trend(ticker, week_ending)
-
-        # 그 주 첫 스냅샷이 월요일이 아니거나, 거래일이 5일 미만이면 부분 데이터
-        partial = (prediction["from_date"] != monday.isoformat()) or ohlc["days"] < 5
-
-        narrative, source = build_narrative(
-            ticker, week_ending, prediction, ohlc, results, trend, partial
+        partial = len(snaps) < 4
+        narrative, dir_meta = regime_mod.format_weekly_direction(
+            ticker,
+            week_ending,
+            monday.isoformat(),
+            friday.isoformat(),
+            spy_regime=spy_reg if isinstance(spy_reg, dict) else None,
+            partial=partial,
         )
+        source = "direction"
 
-        report = narrative + "\n" + build_appendix(prediction, ohlc, results)
+        # 밴드 성적표는 부록으로만 (없어도 방향 리포트는 발송)
+        prediction = wm.extract_prediction(snaps[0])
+        ohlc = wm.weekly_ohlc(ticker, monday, friday)
+        results = None
+        appendix = ""
+        if prediction.get("band_lower") is not None and ohlc:
+            results = wm.build_weekly(ticker, prediction, ohlc)
+            appendix = "\n" + build_appendix(prediction, ohlc, results)
+            partial = partial or (
+                prediction["from_date"] != monday.isoformat()
+            ) or ohlc["days"] < 5
+
+        report = narrative + appendix
 
         snapshot = {
             "ticker": ticker,
@@ -252,6 +210,7 @@ def process_ticker(
             "prediction": prediction,
             "actual_ohlc": ohlc,
             "results": results,
+            "direction": dir_meta,
             "narrative": narrative,
             "narrative_source": source,
         }
@@ -280,7 +239,7 @@ def _send_email(reports: list[str], any_fail: bool, tickers: list[str],
     status = " ⚠일부 실패" if any_fail else ""
     subject = (
         f"{config.EMAIL_WEEKLY_SUBJECT_PREFIX} {', '.join(tickers)} "
-        f"주간검증 - {week_ending}{status}"
+        f"주간방향 - {week_ending}{status}"
     )
     body = ("\n\n" + "=" * 60 + "\n\n").join(reports)
     try:
@@ -298,7 +257,7 @@ def _send_telegram(reports: list[str], any_fail: bool, tickers: list[str],
     status = " ⚠일부 실패" if any_fail else ""
     title = (
         f"{config.EMAIL_WEEKLY_SUBJECT_PREFIX} {', '.join(tickers)} "
-        f"주간검증 - {week_ending}{status}"
+        f"주간방향 - {week_ending}{status}"
     )
     try:
         n = telegram_notify.send_reports(title, reports)
