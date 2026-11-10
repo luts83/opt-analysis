@@ -85,6 +85,24 @@ _DEFAULTS = {
         "focus_pct_2": 0.08,
         "outcome_horizon_days": 1,
     },
+    "option_status": {
+        "atm_band_pct": 0.05,
+        "iv_high": 0.60,
+        "iv_low": 0.35,
+        "band_pct_high": 15.0,
+        "band_pct_low": 8.0,
+        "balance_min": 0.45,
+        "cpr_extreme_low": 0.40,
+        "cpr_extreme_high": 2.50,
+        "spread_median_max": 0.25,
+        "near_mid_min": 0.40,
+        "aggressive_vol_mult": 2.5,
+        "aggressive_min_vol": 200,
+        "dir_vol_ratio": 1.35,
+        "dir_activity_ratio": 1.25,
+        "dir_iv_eps": 0.02,
+        "skew_distance_pct": 0.05,
+    },
 }
 
 
@@ -102,6 +120,10 @@ def _load_settings() -> dict:
         merged["telegram"] = {**_DEFAULTS["telegram"], **data.get("telegram", {})}
         merged["events"] = {**_DEFAULTS["events"], **data.get("events", {})}
         merged["report"] = {**_DEFAULTS["report"], **data.get("report", {})}
+        merged["option_status"] = {
+            **_DEFAULTS["option_status"],
+            **data.get("option_status", {}),
+        }
         return merged
     return _DEFAULTS
 
@@ -178,3 +200,6 @@ REPORT_EVENT_MIN_SCORE: int = int(_REPORT.get("event_min_score", 40))
 REPORT_FOCUS_PCT: float = float(_REPORT.get("focus_pct", 0.05))
 REPORT_FOCUS_PCT_2: float = float(_REPORT.get("focus_pct_2", 0.08))
 REPORT_OUTCOME_HORIZON_DAYS: int = int(_REPORT.get("outcome_horizon_days", 1))
+
+# ---- 옵션 상태 요약 (텔레그램 3~6줄) ----
+OPTION_STATUS: dict = dict(_S.get("option_status") or _DEFAULTS["option_status"])

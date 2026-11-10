@@ -159,9 +159,10 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         )
         data["events"] = eventinfo
 
-        # 레짐(한 줄) + 옵션↔주가 상관 인사이트 본문
+        # 레짐 + 옵션 인사이트(스냅샷 상세) + 텔레그램용 상태 요약
         import regime as regime_mod
         import option_insight as oi_mod
+        import option_status as os_mod
 
         spy_reg = getattr(regime_mod, "_SPY_CACHE", None)
         if not isinstance(spy_reg, dict) or not spy_reg.get("available"):
@@ -171,7 +172,7 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
         )
         data["regime"] = reg
 
-        narrative = oi_mod.format_daily_insight(
+        insight_body = oi_mod.format_daily_insight(
             ticker=ticker,
             date=str(data.get("date")),
             today_snap=data,
@@ -180,16 +181,20 @@ def process_ticker(ticker: str, save: bool = True) -> tuple[str, bool, Path | No
             regime=reg,
             spy_regime=spy_reg if isinstance(spy_reg, dict) else None,
         )
+        data["option_insight"] = insight_body
+        data["option_distribution"] = oi_mod.build_distribution(
+            data, oe_result.get("price", {}).get("close") or data.get("spot")
+        )
+
+        narrative, status_detail = os_mod.build_for_report(data, prev_any)
         earn = (eventinfo or {}).get("earnings") or {}
         if earn.get("phase") in ("임박", "직후") and earn.get("message"):
             narrative = f"🚨 {earn['message']}\n\n" + narrative
 
+        data["option_status"] = status_detail
         data["narrative"] = narrative
-        data["narrative_source"] = "option_insight"
+        data["narrative_source"] = "option_status"
         data["report_mode"] = oe_result.get("mode") or "brief"
-        data["option_distribution"] = oi_mod.build_distribution(
-            data, oe_result.get("price", {}).get("close") or data.get("spot")
-        )
 
         path = None
         if save:
