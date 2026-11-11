@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-11",
+  "prediction_date": "2026-11-10",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 20.0,
+    "resistance": 22.0,
+    "band": [
+      18.3,
+      23.9
+    ],
+    "band_pct": 13.27,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 21.1,
+    "expiry": "2026-11-13"
+  },
+  "actual": {
+    "open": 20.8,
+    "high": 21.67,
+    "low": 19.03,
+    "close": 19.73,
+    "return_pct": -5.14
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "FAIL",
+    "resistance": "NEAR",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 실패 / 저항선 근접 (고가가 예상의 99% 도달) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 68,
+      "grade": "C-",
+      "passes": 2,
+      "fails": 1,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-11-13 만기 $70 CALL OI 대량 유입 (33 → 400, +1112.1%) → 결과: 상승 아닌 급락(-5.1%) · 콜 매도/헤지 물량 가능"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시 / 급락일엔 C/P 상승을 강세로 읽지 말 것(반등 시도/양방향 베팅)"
+}
