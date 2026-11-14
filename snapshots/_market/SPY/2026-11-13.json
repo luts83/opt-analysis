@@ -1,0 +1,24 @@
+{
+  "ticker": "SPY",
+  "date": "2026-11-13",
+  "regular_close": 754.3699951171875,
+  "spot": 754.3699951171875,
+  "regime": {
+    "available": true,
+    "regime": "sideways",
+    "regime_ko": "횡보",
+    "slope_pct": -1.58,
+    "drawdown_pct": -2.42,
+    "peak": 773.09,
+    "last": 754.37,
+    "ma": 759.02,
+    "below_ma": true,
+    "down_days_5": 3,
+    "flags": [],
+    "lookback": 20,
+    "ticker": "SPY",
+    "asof": "2026-11-13",
+    "spot": 754.3699951171875
+  },
+  "generated_at": "2026-11-14T12:05:56.758727+00:00"
+}
