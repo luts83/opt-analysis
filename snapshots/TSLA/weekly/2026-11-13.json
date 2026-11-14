@@ -1,0 +1,137 @@
+{
+  "ticker": "TSLA",
+  "week_ending": "2026-11-13",
+  "week_start": "2026-11-09",
+  "generated_at": "2026-11-14T11:59:35",
+  "partial": true,
+  "prediction": {
+    "from_date": "2026-11-10",
+    "expiry": "2026-11-11",
+    "spot": 373.8,
+    "band_lower": 361.54,
+    "band_upper": 386.06,
+    "band_pct": 3.28,
+    "resistance": 400.0,
+    "support": 345.0,
+    "sentiment": "변동성 확대 가능성"
+  },
+  "actual_ohlc": {
+    "open": 360.25,
+    "high": 404.4,
+    "low": 360.02,
+    "close": 390.22,
+    "days": 5,
+    "return_pct": 8.32
+  },
+  "results": {
+    "band": {
+      "predicted": [
+        361.54,
+        386.06
+      ],
+      "actual": [
+        360.02,
+        404.4
+      ],
+      "contained": false,
+      "ratio": 1.81,
+      "score": 19,
+      "label": "과소평가 (실제 변동폭이 예상의 181%)"
+    },
+    "resistance": {
+      "predicted": 400.0,
+      "actual_high": 404.4,
+      "score": 100,
+      "label": "저항선 돌파! (실제 고가 $404.4 ≥ 예상 $400)",
+      "status": "HIT"
+    },
+    "support": {
+      "predicted": 345.0,
+      "actual_low": 360.02,
+      "score": 91,
+      "label": "지지선 여유 (4.4% 위에서 마감)",
+      "status": "HOLD"
+    },
+    "direction": {
+      "predicted_sentiment": "변동성 확대 가능성",
+      "weekly_return_pct": 8.32,
+      "match": null,
+      "score": null,
+      "status": "UNVERIFIED",
+      "label": "특수국면 채점제외 (변동성 확대 가능성, 일일 +8.3%) — |수익률|만으로 PASS하지 않음"
+    },
+    "grade": {
+      "score": 57,
+      "grade": "D",
+      "passes": 2,
+      "fails": 1,
+      "skipped_unverified": 1
+    }
+  },
+  "direction": {
+    "available": true,
+    "facts": {
+      "available": true,
+      "open": 378.05,
+      "close": 397.45,
+      "high": 397.45,
+      "low": 378.05,
+      "return_pct": 5.13,
+      "n_days": 4,
+      "start_regime": "하락추세",
+      "end_regime": "상승추세",
+      "end_regime_code": "uptrend",
+      "end_drawdown_pct": -2.46,
+      "end_slope_pct": 5.14,
+      "end_below_ma": false,
+      "end_ma": 383.53,
+      "flipped": true,
+      "end_reg": {
+        "available": true,
+        "regime": "uptrend",
+        "regime_ko": "상승추세",
+        "slope_pct": 5.14,
+        "drawdown_pct": -2.46,
+        "peak": 407.46,
+        "last": 397.45,
+        "ma": 383.53,
+        "below_ma": false,
+        "down_days_5": 1,
+        "flags": [],
+        "lookback": 20
+      }
+    },
+    "freq": {
+      "available": true,
+      "n": 29,
+      "fwd_days": 5,
+      "regime": "uptrend",
+      "dd_bucket": "dd0",
+      "pct_down": 48.3,
+      "pct_up": 44.8,
+      "pct_flat": 6.9,
+      "avg_return_pct": -1.03,
+      "direction_hint": "혼조·보류"
+    },
+    "spy": {
+      "available": true,
+      "regime": "sideways",
+      "regime_ko": "횡보",
+      "slope_pct": -0.8,
+      "drawdown_pct": -2.07,
+      "peak": 773.09,
+      "last": 757.12,
+      "ma": 759.47,
+      "below_ma": true,
+      "down_days_5": 2,
+      "flags": [],
+      "lookback": 20,
+      "ticker": "SPY",
+      "asof": "2026-11-12",
+      "spot": 757.1199951171875
+    },
+    "lessons": []
+  },
+  "narrative": "🧭 TSLA 주간 방향 · 2026-11-13\n\n① 이번 주 가격\n· 4일 · $378.05→$397.45 (+5.1%) · 고 $397.45 / 저 $378.05\n· 추세 전환: 하락추세 → 상승추세\n\n② 시장 맥락\n· SPY: 횡보 (기울기 -0.8%)\n· 동조 특이 없음\n\n③ 방향 판단 (과거 동조건 빈도)\n· 동일 레짐·낙폭 버킷 이후 5거래일: 하락 48.3% / 상승 44.8% (표본 29)\n· 평균 수익률 -1.0% → 혼조·보류\n· ※ 과거 빈도이며 미래 확률이 아님\n\n④ 무효화 조건\n· 무효화: 종가가 20일 평균($383.53) 아래 마감\n\n⑤ 이번 주 옵션에서 확인된 것\n· 강한 옵션↔가격 매칭 기록 없음\n\n⚠️ 관측·빈도 기록 · 투자 조언 아님",
+  "narrative_source": "direction"
+}

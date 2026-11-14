@@ -1,0 +1,135 @@
+{
+  "ticker": "SPCX",
+  "week_ending": "2026-11-13",
+  "week_start": "2026-11-09",
+  "generated_at": "2026-11-14T11:59:36",
+  "partial": true,
+  "prediction": {
+    "from_date": "2026-11-10",
+    "expiry": "2026-11-11",
+    "spot": 139.24,
+    "band_lower": 132.47,
+    "band_upper": 146.01,
+    "band_pct": 4.86,
+    "resistance": 150.0,
+    "support": 140.0,
+    "sentiment": "변동성 확대 가능성"
+  },
+  "actual_ohlc": {
+    "open": 136.51,
+    "high": 147.6,
+    "low": 135.37,
+    "close": 139.11,
+    "days": 5,
+    "return_pct": 1.9
+  },
+  "results": {
+    "band": {
+      "predicted": [
+        132.47,
+        146.01
+      ],
+      "actual": [
+        135.37,
+        147.6
+      ],
+      "contained": false,
+      "ratio": 0.9,
+      "score": 88,
+      "label": "부분 이탈 (실제/예상 변동폭 90%)"
+    },
+    "resistance": {
+      "predicted": 150.0,
+      "actual_high": 147.6,
+      "score": 70,
+      "label": "저항선 근접 (고가가 예상의 98% 도달)",
+      "status": "NEAR"
+    },
+    "support": {
+      "predicted": 140.0,
+      "actual_low": 135.37,
+      "score": 0,
+      "label": "지지선 이탈 (실제 저가 $135.37 ≤ 예상 $140)",
+      "status": "FAIL"
+    },
+    "direction": {
+      "predicted_sentiment": "변동성 확대 가능성",
+      "weekly_return_pct": 1.9,
+      "match": null,
+      "score": null,
+      "status": "UNVERIFIED",
+      "label": "특수국면 채점제외 (변동성 확대 가능성, 일일 +1.9%) — |수익률|만으로 PASS하지 않음"
+    },
+    "grade": {
+      "score": 35,
+      "grade": "F",
+      "passes": 1,
+      "fails": 2,
+      "skipped_unverified": 1
+    }
+  },
+  "direction": {
+    "available": true,
+    "facts": {
+      "available": true,
+      "open": 142.07,
+      "close": 139.94,
+      "high": 143.09,
+      "low": 139.75,
+      "return_pct": -1.5,
+      "n_days": 4,
+      "start_regime": "급락중",
+      "end_regime": "급락중",
+      "end_regime_code": "crash",
+      "end_drawdown_pct": -14.37,
+      "end_slope_pct": -14.37,
+      "end_below_ma": true,
+      "end_ma": 145.44,
+      "flipped": false,
+      "end_reg": {
+        "available": true,
+        "regime": "crash",
+        "regime_ko": "급락중",
+        "slope_pct": -14.37,
+        "drawdown_pct": -14.37,
+        "peak": 163.42,
+        "last": 139.94,
+        "ma": 145.44,
+        "below_ma": true,
+        "down_days_5": 2,
+        "flags": [
+          "고점대비 -14.4%"
+        ],
+        "lookback": 20
+      }
+    },
+    "freq": {
+      "available": false,
+      "n": 0,
+      "reason": "표본 0 < 8",
+      "fwd_days": 5,
+      "regime": "crash",
+      "dd_bucket": "dd10"
+    },
+    "spy": {
+      "available": true,
+      "regime": "sideways",
+      "regime_ko": "횡보",
+      "slope_pct": -0.8,
+      "drawdown_pct": -2.07,
+      "peak": 773.09,
+      "last": 757.12,
+      "ma": 759.47,
+      "below_ma": true,
+      "down_days_5": 2,
+      "flags": [],
+      "lookback": 20,
+      "ticker": "SPY",
+      "asof": "2026-11-12",
+      "spot": 757.1199951171875
+    },
+    "lessons": []
+  },
+  "narrative": "🧭 SPCX 주간 방향 · 2026-11-13\n\n① 이번 주 가격\n· 4일 · $142.07→$139.94 (-1.5%) · 고 $143.09 / 저 $139.75\n· 레짐: 급락중 (기울기 -14.37% · 고점대비 -14.37%)\n\n② 시장 맥락\n· SPY: 횡보 (기울기 -0.8%)\n· 동조 특이 없음\n\n③ 방향 판단 (과거 동조건 빈도)\n· 표본 부족 (n=0) — 방향 판단 보류\n· 다만 현재 가격 레짐은 하락 쪽 — 반등 단정 금지\n\n④ 무효화 조건\n· 무효화: 종가가 20일 평균($145.44) 위에서 마감\n· 주의 지속: 고점 대비 낙폭이 -14%에서 더 확대\n\n⑤ 이번 주 옵션에서 확인된 것\n· 강한 옵션↔가격 매칭 기록 없음\n\n⚠️ 관측·빈도 기록 · 투자 조언 아님",
+  "narrative_source": "direction"
+}
