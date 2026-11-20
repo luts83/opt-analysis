@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-20",
+  "prediction_date": "2026-11-19",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 15.0,
+    "resistance": 16.5,
+    "band": [
+      14.51,
+      17.65
+    ],
+    "band_pct": 9.76,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 16.08,
+    "expiry": "2026-11-20"
+  },
+  "actual": {
+    "open": 16.0,
+    "high": 16.66,
+    "low": 13.9,
+    "close": 14.41,
+    "return_pct": -9.94
+  },
+  "accuracy": {
+    "band": "FAIL",
+    "support": "FAIL",
+    "resistance": "HIT",
+    "direction": "SKIP",
+    "summary": "밴드 실패 (부분 이탈 (실제/예상 변동폭 88%)) / 지지 실패 / 저항선 돌파! (실제 고가 $16.66 ≥ 예상 $16.5) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 42,
+      "grade": "F",
+      "passes": 1,
+      "fails": 2,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-11-20 CALL $12 V/OI 6.111 (극단) → 결과: 상승 아닌 급락(-9.9%) · 콜 매도/헤지 물량 가능"
+  ],
+  "lesson": "콜 V/OI 극단≠강세 — 급락 시 콜 매도 물량 가능성부터 검토 / 밴드는 천장/바닥이 아님 — 이탈은 관찰로만 기록 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시 / 급락일엔 C/P 상승을 강세로 읽지 말 것(반등 시도/양방향 베팅)"
+}

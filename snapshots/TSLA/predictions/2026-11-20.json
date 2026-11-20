@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-20",
+  "prediction_date": "2026-11-19",
+  "ticker": "TSLA",
+  "predicted": {
+    "support": 382.5,
+    "resistance": 400.0,
+    "band": [
+      376.45,
+      407.31
+    ],
+    "band_pct": 3.94,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 391.88,
+    "expiry": "2026-11-20"
+  },
+  "actual": {
+    "open": 389.9,
+    "high": 393.6,
+    "low": 363.84,
+    "close": 374.41,
+    "return_pct": -3.97
+  },
+  "accuracy": {
+    "band": "FAIL",
+    "support": "FAIL",
+    "resistance": "NEAR",
+    "direction": "SKIP",
+    "summary": "밴드 실패 (부분 이탈 (실제/예상 변동폭 96%)) / 지지 실패 / 저항선 근접 (고가가 예상의 98% 도달) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 35,
+      "grade": "F",
+      "passes": 1,
+      "fails": 2,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [
+    "2026-11-20 만기 $232.5 PUT OI 대량 유입 (23 → 3,005, +12965.2%) → 결과: 급락(-4.0%)"
+  ],
+  "lesson": "미결제약정(OI)이 하루 만에 크게 늘면 그 가격대를 최우선으로 언급 / 밴드는 천장/바닥이 아님 — 이탈은 관찰로만 기록 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}

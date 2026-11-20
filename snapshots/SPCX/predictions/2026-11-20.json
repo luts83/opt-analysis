@@ -1,0 +1,40 @@
+{
+  "date": "2026-11-20",
+  "prediction_date": "2026-11-19",
+  "ticker": "SPCX",
+  "predicted": {
+    "support": 140.0,
+    "resistance": 150.0,
+    "band": [
+      138.39,
+      151.25
+    ],
+    "band_pct": 4.44,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 144.82,
+    "expiry": "2026-11-20"
+  },
+  "actual": {
+    "open": 144.91,
+    "high": 147.29,
+    "low": 129.72,
+    "close": 138.43,
+    "return_pct": -4.47
+  },
+  "accuracy": {
+    "band": "FAIL",
+    "support": "FAIL",
+    "resistance": "NEAR",
+    "direction": "SKIP",
+    "summary": "밴드 실패 (과소평가 (실제 변동폭이 예상의 137%)) / 지지 실패 / 저항선 근접 (고가가 예상의 98% 도달) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 34,
+      "grade": "F",
+      "passes": 1,
+      "fails": 2,
+      "skipped_unverified": 1
+    }
+  },
+  "missed_signals": [],
+  "lesson": "밴드는 천장/바닥이 아님 — 이탈은 관찰로만 기록 / 지지가 뚫리면 그 아래 다음 지지(풋 OI)를 같이 제시"
+}
