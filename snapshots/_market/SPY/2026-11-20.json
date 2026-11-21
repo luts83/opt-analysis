@@ -1,0 +1,27 @@
+{
+  "ticker": "SPY",
+  "date": "2026-11-20",
+  "regular_close": 689.8099975585938,
+  "spot": 689.8099975585938,
+  "regime": {
+    "available": true,
+    "regime": "downtrend",
+    "regime_ko": "하락추세",
+    "slope_pct": -9.87,
+    "drawdown_pct": -10.68,
+    "peak": 772.31,
+    "last": 689.81,
+    "ma": 747.81,
+    "below_ma": true,
+    "down_days_5": 5,
+    "flags": [
+      "고점대비 -10.7%",
+      "최근5일 중 5일 약세"
+    ],
+    "lookback": 20,
+    "ticker": "SPY",
+    "asof": "2026-11-20",
+    "spot": 689.8099975585938
+  },
+  "generated_at": "2026-11-21T13:24:44.526080+00:00"
+}
