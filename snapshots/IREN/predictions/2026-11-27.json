@@ -1,0 +1,46 @@
+{
+  "date": "2026-11-27",
+  "prediction_date": "2026-11-26",
+  "ticker": "IREN",
+  "predicted": {
+    "support": 11.0,
+    "resistance": 13.0,
+    "band": [
+      11.93,
+      13.77
+    ],
+    "band_pct": 7.16,
+    "sentiment": "변동성 확대 가능성",
+    "spot": 12.85,
+    "expiry": "2026-11-27"
+  },
+  "actual": {
+    "open": 13.7,
+    "high": 13.7,
+    "low": 12.74,
+    "close": 13.06,
+    "return_pct": -4.71
+  },
+  "accuracy": {
+    "band": "PASS",
+    "support": "UNVERIFIED",
+    "resistance": "HIT",
+    "direction": "SKIP",
+    "summary": "밴드 성공 / 지지 미검증 / 저항선 돌파! (실제 고가 $13.7 ≥ 예상 $13) / 방향 채점제외(특수국면)",
+    "grade": {
+      "score": 100,
+      "grade": "A",
+      "passes": 2,
+      "fails": 0,
+      "skipped_unverified": 2
+    }
+  },
+  "missed_signals": [
+    "2026-12-18 PUT $13.5 V/OI 13.017 (극단) → 결과: 급락(-4.7%)",
+    "2026-12-04 PUT $9.5 V/OI 9.517 (극단) → 결과: 급락(-4.7%)",
+    "2026-11-27 CALL $10.5 V/OI 14.343 (극단) → 결과: 상승 아닌 급락(-4.7%) · 콜 매도/헤지 물량 가능",
+    "2026-11-27 CALL $13.5 V/OI 9.524 (극단) → 결과: 상승 아닌 급락(-4.7%) · 콜 매도/헤지 물량 가능",
+    "2026-12-04 CALL $14.5 V/OI 9.192 (극단) → 결과: 상승 아닌 급락(-4.7%) · 콜 매도/헤지 물량 가능"
+  ],
+  "lesson": "콜 V/OI 극단≠강세 — 급락 시 콜 매도 물량 가능성부터 검토"
+}
